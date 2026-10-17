@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
-import { Route as PProjectIdSettingsRouteImport } from './routes/p.$projectId_.settings'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -29,44 +28,35 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PProjectIdSettingsRoute = PProjectIdSettingsRouteImport.update({
-  id: '/p/$projectId_/settings',
-  path: '/p/$projectId/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/new': typeof NewRoute
   '/p/$projectId': typeof PProjectIdRoute
-  '/p/$projectId/settings': typeof PProjectIdSettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/new': typeof NewRoute
   '/p/$projectId': typeof PProjectIdRoute
-  '/p/$projectId/settings': typeof PProjectIdSettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/new': typeof NewRoute
   '/p/$projectId': typeof PProjectIdRoute
-  '/p/$projectId_/settings': typeof PProjectIdSettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/new' | '/p/$projectId' | '/p/$projectId/settings'
+  fullPaths: '/' | '/new' | '/p/$projectId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/new' | '/p/$projectId' | '/p/$projectId/settings'
-  id: '__root__' | '/' | '/new' | '/p/$projectId' | '/p/$projectId_/settings'
+  to: '/' | '/new' | '/p/$projectId'
+  id: '__root__' | '/' | '/new' | '/p/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   NewRoute: typeof NewRoute
   PProjectIdRoute: typeof PProjectIdRoute
-  PProjectIdSettingsRoute: typeof PProjectIdSettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -92,13 +82,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/p/$projectId_/settings': {
-      id: '/p/$projectId_/settings'
-      path: '/p/$projectId/settings'
-      fullPath: '/p/$projectId/settings'
-      preLoaderRoute: typeof PProjectIdSettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -106,7 +89,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   NewRoute: NewRoute,
   PProjectIdRoute: PProjectIdRoute,
-  PProjectIdSettingsRoute: PProjectIdSettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -153,7 +153,8 @@ function servicesFor(
     if (!m || script === main || /^(build|test|lint|typecheck|check|db|format)$/.test(m[1])) continue
     out.push({
       id: slug(`${id}-${m[1]}`),
-      name: `${main || multi ? `${name} · ` : ''}${title(m[1])}`,
+      // "Web · Worker" in a multi-app folder; just "Worker" for the root app.
+      name: `${rel ? `${name} · ` : ''}${title(m[1])}`,
       command: runScript(pm, script),
       cwd: rel,
       kind: `Script · ${script}`,
@@ -212,7 +213,7 @@ export function scanFolder(input: string): ScanResult {
   }
 
   const folderSlug = slug(path.basename(root))
-  const existing = new Set(loadConfig().projects.map((p) => p.id))
+  const existing = new Set(loadConfig().map((p) => p.id))
   let suggestedId = slug(path.basename(root))
   for (let i = 2; existing.has(suggestedId); i++) suggestedId = `${slug(path.basename(root))}-${i}`
 

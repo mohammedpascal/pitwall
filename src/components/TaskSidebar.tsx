@@ -1,41 +1,124 @@
 import { useState } from 'react'
-import type { Task, TaskStatus } from '#/server/types'
+import type { Task } from '#/server/types'
 import { ago } from '#/lib/format'
-import { ConsoleIcon, MailIcon, TerminalIcon, sourceIcon } from './icons'
-
-type Filter = 'inbox' | 'approved' | 'all'
-
-const CHIP: Record<TaskStatus, { label: string; dot: string; cls: string }> = {
-  new: { label: 'New', dot: 'bg-ink', cls: 'bg-line-soft' },
-  approved: { label: 'Approved', dot: 'bg-ok', cls: 'bg-line-soft' },
-  rejected: { label: 'Rejected', dot: 'bg-ink-faint', cls: 'border border-line text-ink-soft' },
-}
+import { PlusIcon, sourceIcon } from './icons'
 
 export function TaskSidebar({
   projectName,
   tasks,
   now,
   onAdd,
-  onSetStatus,
+  onDone,
+  onReopen,
 }: {
   projectName: string
   tasks: Task[]
   now: number
   onAdd: (title: string) => Promise<void>
-  onSetStatus: (id: string, status: TaskStatus) => void
+  onDone: (task: Task) => void
+  onReopen: (task: Task) => void
 }) {
-  const [draft, setDraft] = useState('')
-  const [filter, setFilter] = useState<Filter>('inbox')
-  const [saving, setSaving] = useState(false)
+  const open = tasks.filter((t) => t.status === 'open')
+  const done = tasks.filter((t) => t.status === 'done')
 
-  const counts = {
-    inbox: tasks.filter((t) => t.status === 'new').length,
-    approved: tasks.filter((t) => t.status === 'approved').length,
-    all: tasks.length,
-  }
-  const visible = tasks.filter((t) =>
-    filter === 'inbox' ? t.status === 'new' : filter === 'approved' ? t.status === 'approved' : true,
+  return (
+    <aside
+      aria-labelledby="tasks-h"
+      className="flex max-w-full flex-[1_1_340px] flex-col gap-4 border-l border-line bg-surface px-[22px] py-7"
+    >
+      <h2 id="tasks-h" className="flex items-baseline gap-2 text-lg font-semibold">
+        Needs you
+        {open.length > 0 && <span className="text-[15px] font-medium text-ink-soft">{open.length}</span>}
+      </h2>
+
+      <div className="flex flex-col gap-2.5">
+        {open.length === 0 && (
+          <p className="rounded-[14px] border border-dashed border-line px-3 py-6 text-center text-[13px] leading-relaxed text-ink-soft">
+            Nothing needs you. When a service crashes, it shows up here.
+          </p>
+        )}
+        {open.map((t) => (
+          <TaskCard key={t.id} task={t} now={now} onDone={() => onDone(t)} />
+        ))}
+      </div>
+
+      <AddTask projectName={projectName} onAdd={onAdd} />
+
+      {done.length > 0 && (
+        <details className="group mt-2 border-t border-line-soft pt-4">
+          <summary className="flex list-none items-center gap-1.5 text-[13px] font-semibold text-ink-soft select-none [&::-webkit-details-marker]:hidden">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            Done {done.length}
+          </summary>
+          <ul className="mt-3 flex flex-col">
+            {done.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-2 py-1.5">
+                <span className="min-w-0 truncate text-[13px] text-ink-soft line-through decoration-ink-faint">{t.title}</span>
+                <button
+                  type="button"
+                  onClick={() => onReopen(t)}
+                  className="h-8 flex-none rounded-lg px-2 text-xs font-medium text-ink-soft hover:bg-line-soft hover:text-ink"
+                >
+                  Reopen
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </aside>
   )
+}
+
+function TaskCard({ task: t, now, onDone }: { task: Task; now: number; onDone: () => void }) {
+  const Icon = sourceIcon[t.source]
+  const count = t.count ?? 1
+  return (
+    <article className="flex flex-col gap-2.5 rounded-[14px] border border-line bg-surface p-3.5">
+      <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
+        <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+          <Icon />
+          {t.sourceLabel}
+        </span>
+        <span className="flex-none">{ago(t.lastSeenAt ?? t.createdAt, now)}</span>
+      </div>
+      <div className="text-sm leading-snug font-medium break-words">
+        {t.title}
+        {count > 1 && (
+          <span className="ml-1.5 inline-flex rounded-full bg-line-soft px-1.5 py-0.5 align-middle text-[11px] font-semibold text-ink-soft">
+            ×{count}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        {t.detail ? (
+          <details className="min-w-0 flex-1 text-xs">
+            <summary className="text-ink-soft">Output</summary>
+            <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-bg p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+              {t.detail}
+            </pre>
+          </details>
+        ) : (
+          <span />
+        )}
+        <button
+          type="button"
+          onClick={onDone}
+          className="h-9 flex-none self-start rounded-lg border border-line px-3 text-[13px] font-medium hover:bg-line-soft"
+        >
+          Done
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function AddTask({ projectName, onAdd }: { projectName: string; onAdd: (title: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
 
   async function submit() {
     const title = draft.trim()
@@ -44,163 +127,65 @@ export function TaskSidebar({
     try {
       await onAdd(title)
       setDraft('')
-      setFilter('inbox')
+      setOpen(false)
     } finally {
       setSaving(false)
     }
   }
 
-  return (
-    <aside
-      aria-labelledby="tasks-h"
-      className="flex max-w-full flex-[1_1_340px] flex-col gap-5 border-l border-line bg-surface px-[22px] py-7"
-    >
-      <h2 id="tasks-h" className="text-lg font-semibold">
-        Tasks
-      </h2>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-        className="flex flex-col gap-2 rounded-[14px] border border-line bg-bg p-3"
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex h-10 items-center gap-2 self-start rounded-[10px] px-2 font-medium text-ink-soft hover:bg-line-soft hover:text-ink"
       >
-        <label htmlFor="new-task" className="text-xs font-semibold text-ink-soft">
-          New task
-        </label>
-        <textarea
-          id="new-task"
-          rows={3}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault()
-              void submit()
-            }
-          }}
-          placeholder={`Describe what you want done in ${projectName}…`}
-          className="resize-y bg-transparent p-0 text-sm leading-normal outline-none placeholder:text-ink-faint"
-        />
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-ink-soft">⌘↵ to add</span>
-          <button
-            type="submit"
-            disabled={!draft.trim() || saving}
-            className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
-          >
-            Add task
-          </button>
-        </div>
-      </form>
+        <PlusIcon size={16} />
+        Add a task
+      </button>
+    )
+  }
 
-      <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
-        <span className="mr-0.5">Also arriving from</span>
-        <Pill icon={<TerminalIcon size={12} />} label="Terminal" />
-        <Pill icon={<MailIcon size={12} />} label="Email · soon" muted />
-        <Pill icon={<ConsoleIcon size={12} />} label="Console · soon" muted />
-      </div>
-
-      <div role="tablist" aria-label="Task filter" className="flex gap-1 rounded-[10px] bg-line-soft p-[3px]">
-        {(
-          [
-            ['inbox', 'Inbox'],
-            ['approved', 'Approved'],
-            ['all', 'All'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={filter === id}
-            onClick={() => setFilter(id)}
-            className={`h-[34px] flex-1 rounded-lg text-[13px] font-medium ${
-              filter === id ? 'bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]' : ''
-            }`}
-          >
-            {label} <span className="text-ink-soft">{counts[id]}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-col gap-2.5">
-        {visible.length === 0 && (
-          <div className="rounded-[14px] border border-dashed border-line px-3 py-7 text-center text-[13px] text-ink-soft">
-            {filter === 'inbox' ? 'Inbox is clear.' : 'Nothing here yet.'}
-          </div>
-        )}
-        {visible.map((t) => {
-          const Icon = sourceIcon[t.source]
-          const chip = CHIP[t.status]
-          return (
-            <article key={t.id} className="flex flex-col gap-2.5 rounded-[14px] border border-line bg-surface p-3.5">
-              <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
-                <span className="inline-flex items-center gap-1.5">
-                  <Icon />
-                  {t.sourceLabel}
-                </span>
-                <span>{ago(t.createdAt, now)}</span>
-              </div>
-              <div className="text-sm leading-snug font-medium break-words">{t.title}</div>
-              {t.detail && (
-                <details className="text-xs">
-                  <summary className="cursor-pointer text-ink-soft">Output</summary>
-                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-bg p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
-                    {t.detail}
-                  </pre>
-                </details>
-              )}
-              <div className="flex items-center justify-between gap-2">
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${chip.cls}`}>
-                  <span aria-hidden="true" className={`size-1.5 rounded-full ${chip.dot}`} />
-                  {chip.label}
-                </span>
-                {t.status === 'new' ? (
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onSetStatus(t.id, 'rejected')}
-                      className="h-9 rounded-lg border border-line px-3 text-[13px] font-medium hover:bg-line-soft"
-                    >
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSetStatus(t.id, 'approved')}
-                      className="h-9 rounded-lg bg-ink px-3 text-[13px] font-medium text-white hover:bg-ink/85"
-                    >
-                      Approve
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onSetStatus(t.id, 'new')}
-                    className="h-9 rounded-lg px-2 text-[13px] text-ink-soft hover:bg-line-soft"
-                  >
-                    Move to inbox
-                  </button>
-                )}
-              </div>
-            </article>
-          )
-        })}
-      </div>
-    </aside>
-  )
-}
-
-function Pill({ icon, label, muted }: { icon: React.ReactNode; label: string; muted?: boolean }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${
-        muted ? 'border-dashed border-line text-ink-soft' : 'border-line'
-      }`}
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+      className="flex flex-col gap-2 rounded-[14px] border border-ink bg-surface p-3"
     >
-      {icon}
-      {label}
-    </span>
+      <label htmlFor="new-task" className="sr-only">
+        New task
+      </label>
+      <textarea
+        id="new-task"
+        rows={3}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault()
+            void submit()
+          } else if (e.key === 'Escape') {
+            setOpen(false)
+          }
+        }}
+        placeholder={`What needs doing in ${projectName}?`}
+        className="resize-y bg-transparent text-sm leading-normal outline-none placeholder:text-ink-faint"
+      />
+      <div className="flex items-center justify-end gap-1.5">
+        <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-lg px-3 text-[13px] font-medium hover:bg-line-soft">
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!draft.trim() || saving}
+          className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+    </form>
   )
 }

@@ -1,172 +1,151 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ErrorNote, Notes, PageHeader } from '#/components/ui'
-import {
-  FolderInput,
-  ServicesEditor,
-  errorMessage,
-  savedRows,
-  toRows,
-  type ServiceRow,
-} from '#/components/ServicesEditor'
-import { addProject, getProjects, scanProject } from '#/server/fns'
-import type { ScanResult } from '#/server/types'
+import { ErrorNote, FolderInput, PageHeader } from '#/components/ui'
+import { errorMessage } from '#/lib/errors'
+import { createProject, getProjects, openProject } from '#/server/fns'
+import type { OpenResult } from '#/server/types'
 
 export const Route = createFileRoute('/new')({
   loader: async () => ({ projects: await getProjects() }),
-  head: () => ({ meta: [{ title: 'Add project · Pitwall' }] }),
-  component: AddProject,
+  head: () => ({ meta: [{ title: 'Open a project · Pitwall' }] }),
+  component: OpenProject,
 })
 
-function AddProject() {
+type Empty = Extract<OpenResult, { status: 'empty' }>
+
+function OpenProject() {
   const { projects } = Route.useLoaderData()
   const navigate = useNavigate()
   const [folder, setFolder] = useState('~/src/')
-  const [scan, setScan] = useState<ScanResult | null>(null)
-  const [name, setName] = useState('')
-  const [rows, setRows] = useState<ServiceRow[]>([])
-  const [busy, setBusy] = useState<'scan' | 'save' | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [empty, setEmpty] = useState<Empty | null>(null)
+  const [service, setService] = useState({ name: 'App', command: '' })
 
-  async function runScan() {
+  const go = (id: string) => navigate({ to: '/p/$projectId', params: { projectId: id } })
+
+  async function open() {
     if (!folder.trim() || busy) return
-    setBusy('scan')
+    setBusy(true)
     setError(null)
+    setEmpty(null)
     try {
-      const result = await scanProject({ data: { path: folder } })
-      setScan(result)
-      setName(result.suggestedName)
-      setRows(toRows(result.services))
+      const result = await openProject({ data: { path: folder } })
+      if (result.status === 'opened') return void (await go(result.id))
+      setEmpty(result)
+      setBusy(false)
     } catch (e) {
       setError(errorMessage(e))
-    } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
-  async function save() {
-    if (!scan || busy) return
-    setBusy('save')
+  async function create() {
+    if (!empty || busy) return
+    setBusy(true)
     setError(null)
     try {
-      const { id } = await addProject({
-        data: { id: scan.suggestedId, name, path: scan.path, services: savedRows(rows) },
-      })
-      await navigate({ to: '/p/$projectId', params: { projectId: id } })
+      const { id } = await createProject({ data: { path: empty.path, name: empty.name, service } })
+      await go(id)
     } catch (e) {
       setError(errorMessage(e))
-      setBusy(null)
+      setBusy(false)
     }
   }
-
-  const count = savedRows(rows).length
-  const step = scan ? 2 : 1
 
   return (
     <div className="min-h-screen bg-bg text-sm text-ink">
-      <PageHeader back={projects.length > 0 ? { to: '/', label: 'Projects' } : undefined}>
-        <ol aria-label="Progress" className="flex gap-5 text-[13px]">
-          {['Choose folder', 'Confirm services'].map((label, i) => {
-            const n = i + 1
-            const on = n <= step
-            return (
-              <li
-                key={label}
-                aria-current={n === step ? 'step' : undefined}
-                className={`inline-flex items-center gap-2 ${n === step ? 'font-semibold' : on ? '' : 'text-ink-soft'}`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`flex size-5 items-center justify-center rounded-full text-[11px] font-semibold ${on ? 'bg-ink text-white' : 'border border-line'}`}
-                >
-                  {n}
-                </span>
-                {label}
-              </li>
-            )
-          })}
-        </ol>
-      </PageHeader>
+      <PageHeader back={projects.length > 0} />
 
-      <main className="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-8 pt-12 pb-16 max-sm:px-4">
+      <main className="mx-auto flex w-full max-w-[620px] flex-col gap-6 px-6 pt-24 pb-16 max-sm:pt-12">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-[-0.015em]">
-            {scan ? `Found ${rows.length} service${rows.length === 1 ? '' : 's'} in ${scan.displayPath}` : 'Add a project'}
+            {projects.length ? 'Open a project' : 'Open your first project'}
           </h1>
-          <p className="max-w-[620px] text-[15px] leading-relaxed text-ink-soft">
-            {scan
-              ? 'Check how each one should run. Turn off anything you don’t need, fix a command, or add one I missed.'
-              : 'Point Pitwall at a project folder. It reads the workspaces, apps and compose file and suggests how to run each service.'}
+          <p className="text-[15px] leading-relaxed text-ink-soft">
+            Pick its folder. Pitwall finds the apps inside and starts them.
           </p>
         </div>
 
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            void runScan()
+            void open()
           }}
-          className="flex flex-wrap items-end gap-2"
+          className="flex gap-2"
         >
-          <div className="flex min-w-0 flex-[1_1_420px] flex-col gap-1.5">
-            <label htmlFor="folder" className="text-xs font-semibold text-ink-soft">
-              Project folder
-            </label>
+          <label htmlFor="folder" className="sr-only">
+            Project folder
+          </label>
+          <div className="min-w-0 flex-1">
             <FolderInput
               id="folder"
               value={folder}
+              autoFocus
               onChange={(v) => {
                 setFolder(v)
-                if (scan) setScan(null)
+                setEmpty(null)
               }}
             />
           </div>
           <button
             type="submit"
-            disabled={!folder.trim() || busy !== null}
-            className={`h-11 rounded-[10px] px-5 font-semibold disabled:opacity-50 ${scan ? 'border border-line bg-surface hover:bg-line-soft' : 'bg-ink text-white hover:bg-ink/85'}`}
+            disabled={!folder.trim() || busy}
+            className="h-11 flex-none rounded-[10px] bg-ink px-5 font-semibold text-white hover:bg-ink/85 disabled:opacity-50"
           >
-            {busy === 'scan' ? 'Scanning…' : scan ? 'Scan again' : 'Scan folder'}
+            {busy && !empty ? 'Opening…' : 'Open'}
           </button>
         </form>
 
         {error && <ErrorNote text={error} />}
 
-        {scan && (
-          <>
-            <div className="flex max-w-[420px] flex-col gap-1.5">
-              <label htmlFor="pname" className="text-xs font-semibold text-ink-soft">
-                Project name
-              </label>
-              <input
-                id="pname"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[15px] font-medium outline-none focus:border-ink"
-              />
+        {empty && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void create()
+            }}
+            className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5"
+          >
+            <div className="flex flex-col gap-1">
+              <h2 className="text-[15px] font-semibold">Nothing to run found in {empty.displayPath}</h2>
+              <p className="text-[13px] text-ink-soft">What command starts it?</p>
             </div>
-
-            <ServicesEditor
-              rows={rows}
-              onChange={setRows}
-              meta={`${scan.packageManager}${scan.portless ? ' · portless' : ''}`}
-            />
-
-            {scan.notes.length > 0 && <Notes notes={scan.notes} />}
-
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-              <span className="text-[13px] text-ink-soft">
-                Saved to <code className="font-mono text-ink">pitwall.config.json</code>. You can change it later in the project’s settings.
-              </span>
-              <button
-                type="button"
-                onClick={() => void save()}
-                disabled={!name.trim() || busy !== null}
-                className="h-11 rounded-[10px] bg-ink px-5 font-semibold text-white hover:bg-ink/85 disabled:opacity-50"
-              >
-                {busy === 'save' ? 'Adding…' : `Add project${count ? ` with ${count} service${count === 1 ? '' : 's'}` : ''}`}
-              </button>
+            <div className="flex flex-wrap gap-2">
+              <div className="flex w-36 flex-col gap-1.5">
+                <label htmlFor="svc-name" className="text-xs font-semibold text-ink-soft">
+                  Name
+                </label>
+                <input
+                  id="svc-name"
+                  value={service.name}
+                  onChange={(e) => setService((s) => ({ ...s, name: e.target.value }))}
+                  className="h-11 rounded-[10px] border border-line bg-surface px-3 outline-none focus:border-ink"
+                />
+              </div>
+              <div className="flex min-w-[220px] flex-1 flex-col gap-1.5">
+                <label htmlFor="svc-cmd" className="text-xs font-semibold text-ink-soft">
+                  Command
+                </label>
+                <input
+                  id="svc-cmd"
+                  autoFocus
+                  value={service.command}
+                  onChange={(e) => setService((s) => ({ ...s, command: e.target.value }))}
+                  placeholder="npm run dev"
+                  spellCheck={false}
+                  className="h-11 rounded-[10px] border border-line bg-surface px-3 font-mono text-[13px] outline-none focus:border-ink"
+                />
+              </div>
             </div>
-          </>
+            <button
+              type="submit"
+              disabled={busy || !service.name.trim() || !service.command.trim()}
+              className="h-11 self-start rounded-[10px] bg-ink px-5 font-semibold text-white hover:bg-ink/85 disabled:opacity-50"
+            >
+              {busy ? 'Starting…' : 'Add and start'}
+            </button>
+          </form>
         )}
       </main>
     </div>

@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
 import type { LogLevel, LogLine, ServiceStatus } from './types'
 
 type Stream = 'out' | 'err' | 'sys'
@@ -23,8 +24,34 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 const store = globalThis as unknown as {
   __pitwallProcs?: Map<string, Proc>
   __pitwallExitHook?: boolean
+  __pitwallOnCrash?: (key: string) => void
 }
 const procs = (store.__pitwallProcs ??= new Map<string, Proc>())
+
+/** Called when a service exits with an error (not when it's stopped). */
+export function onCrash(fn: (key: string) => void) {
+  store.__pitwallOnCrash = fn
+}
+
+// Services you left running are remembered, so reopening Pitwall starts them again.
+const RUNNING_FILE = path.join(process.cwd(), '.pitwall', 'running.json')
+
+export function remembered(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(RUNNING_FILE, 'utf8')) as string[]
+  } catch {
+    return []
+  }
+}
+
+function remember(key: string, on: boolean) {
+  const keys = new Set(remembered())
+  if (on === keys.has(key)) return
+  if (on) keys.add(key)
+  else keys.delete(key)
+  fs.mkdirSync(path.dirname(RUNNING_FILE), { recursive: true })
+  fs.writeFileSync(RUNNING_FILE, JSON.stringify([...keys], null, 2))
+}
 
 function get(key: string): Proc {
   let p = procs.get(key)
@@ -57,16 +84,32 @@ function classify(text: string, stream: Stream): LogLevel {
   return 'info'
 }
 
+const LOCAL_HOST =
+  /^(localhost|.+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/i
+
+/**
+ * The first URL in a line that points at this machine or the local network.
+ * Docs links such as https://expo.fyi/… are skipped.
+ */
+export function localUrl(text: string): string | null {
+  for (const m of text.matchAll(/https?:\/\/[^\s'"<>)]+/g)) {
+    const raw = m[0].replace(/[.,;]$/, '')
+    try {
+      if (LOCAL_HOST.test(new URL(raw).hostname)) return raw
+    } catch {
+      /* not a URL after all */
+    }
+  }
+  return null
+}
+
 function push(p: Proc, raw: string, stream: Stream, level?: LogLevel) {
   const text = raw.replace(ANSI, '').replace(/\r/g, '')
   if (!text.trim()) return
   const lvl = level ?? classify(text, stream)
   p.logs.push({ seq: ++p.seq, t: Date.now(), text, level: lvl })
   if (p.logs.length > MAX_LOGS) p.logs.splice(0, p.logs.length - MAX_LOGS)
-  if (stream !== 'sys' && !p.url) {
-    const m = text.match(/https?:\/\/[^\s'"<>)]+/)
-    if (m) p.url = m[0].replace(/[.,;]$/, '')
-  }
+  if (stream !== 'sys' && !p.url) p.url = localUrl(text)
   if (p.status === 'starting' && (p.url || lvl === 'ok')) p.status = 'running'
 }
 
@@ -109,7 +152,7 @@ function serviceEnv() {
   return env
 }
 
-export function start(key: string, command: string, cwd: string) {
+export function start(key: string, command: string, cwd: string, extraEnv: Record<string, string> = {}) {
   const p = get(key)
   if (p.child) return
   p.stopping = false
@@ -124,13 +167,14 @@ export function start(key: string, command: string, cwd: string) {
 
   p.status = 'starting'
   p.startedAt = Date.now()
+  remember(key, true)
   push(p, `$ ${command}`, 'sys', 'info')
 
   const child = spawn(command, {
     cwd,
     shell: true,
     detached: process.platform !== 'win32',
-    env: serviceEnv(),
+    env: { ...serviceEnv(), ...extraEnv },
   })
   p.child = child
 
@@ -153,10 +197,17 @@ export function start(key: string, command: string, cwd: string) {
     } else if (code === 0) {
       p.status = 'stopped'
       push(p, 'Exited', 'sys', 'info')
+      remember(key, false)
     } else {
       p.status = 'error'
       p.exitCode = code
       push(p, `Process exited with ${code !== null ? `code ${code}` : signal}`, 'sys', 'err')
+      remember(key, false)
+      try {
+        store.__pitwallOnCrash?.(key)
+      } catch (e) {
+        console.error('[pitwall] crash handler failed', e)
+      }
     }
     p.stopping = false
   })
@@ -168,6 +219,7 @@ export function start(key: string, command: string, cwd: string) {
 }
 
 export function stop(key: string) {
+  remember(key, false)
   const p = procs.get(key)
   if (!p?.child) return
   const child = p.child
@@ -186,6 +238,24 @@ export function view(key: string) {
     url: p.url,
     startedAt: p.startedAt,
     lastSeq: p.seq,
+  }
+}
+
+/**
+ * Command lines of everything the service started (its process group), e.g. the
+ * real `expo start --dev-client --port 8082` behind `npm start`.
+ */
+export function groupCommands(key: string): string[] {
+  const pid = procs.get(key)?.child?.pid
+  if (!pid || process.platform === 'win32') return []
+  try {
+    return execFileSync('ps', ['-A', '-o', 'pgid=,command='], { encoding: 'utf8' })
+      .split('\n')
+      .map((line) => line.trim().match(/^(\d+)\s+(.*)$/))
+      .filter((m): m is RegExpMatchArray => !!m && Number(m[1]) === pid)
+      .map((m) => m[2])
+  } catch {
+    return []
   }
 }
 

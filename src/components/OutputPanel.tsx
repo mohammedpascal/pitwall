@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { LogLine, ServiceView } from '#/server/types'
 import { clock } from '#/lib/format'
 import { AlertIcon } from './icons'
+import { QrCode } from './QrCode'
 
 const LEVEL = {
   info: 'text-ink',
@@ -10,92 +11,53 @@ const LEVEL = {
   err: 'text-err',
 }
 
-export function OutputPanel({
-  services,
-  current,
-  logs,
-  sent,
-  onSelect,
-  onRestart,
-  onSend,
-}: {
-  services: ServiceView[]
-  current: ServiceView | undefined
-  logs: LogLine[]
-  sent: boolean
-  onSelect: (id: string) => void
-  onRestart: () => void
-  onSend: () => void
-}) {
+/** Output of the selected service. Picking a service happens on its card. */
+export function OutputPanel({ service, logs }: { service: ServiceView; logs: LogLine[] }) {
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
   const last = logs.at(-1)?.seq
 
   useEffect(() => {
+    pinned.current = true
+  }, [service.id])
+
+  useEffect(() => {
     const el = box.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight
-  }, [last, current?.id])
+  }, [last, service.id])
 
   return (
     <section aria-labelledby="out-h" className="flex flex-grow flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2.5">
-        <h2 id="out-h" className="text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase">
-          Output
-        </h2>
-        <div role="tablist" aria-label="Service output" className="flex gap-1 rounded-[10px] bg-line-soft p-[3px]">
-          {services.map((s) => {
-            const on = s.id === current?.id
-            return (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={on}
-                onClick={() => onSelect(s.id)}
-                className={`h-8 rounded-lg px-3 text-[13px] font-medium ${
-                  on ? 'bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]' : 'text-ink-soft'
-                }`}
-              >
-                {s.name}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      <h2 id="out-h" className="text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase">
+        {service.name} output
+      </h2>
 
       <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
-        {current?.status === 'error' && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-err-tint px-4 py-3">
-            <div className="flex items-center gap-2.5 text-[13px]">
-              <AlertIcon className="text-err" />
+        {service.status === 'error' && (
+          <div className="flex items-center gap-2.5 border-b border-line bg-err-tint px-4 py-3 text-[13px]">
+            <AlertIcon className="flex-none text-err" />
+            <span>
               <strong className="font-semibold">
-                {current.name}{' '}
-                {current.exitCode !== null ? `exited with code ${current.exitCode}` : 'could not start'}
-              </strong>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={onRestart}
-                className="h-9 rounded-lg border border-line bg-surface px-3 text-[13px] font-medium hover:bg-line-soft"
-              >
-                Restart
-              </button>
-              <button
-                type="button"
-                onClick={onSend}
-                disabled={sent}
-                className="h-9 rounded-lg bg-ink px-3 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-60"
-              >
-                {sent ? 'Sent to tasks' : 'Send to tasks'}
-              </button>
+                {service.name} {service.exitCode !== null ? `crashed (exit ${service.exitCode})` : 'couldn’t start'}.
+              </strong>{' '}
+              {service.exitCode !== null ? 'It’s in your tasks.' : 'Check its command and folder.'}
+            </span>
+          </div>
+        )}
+        {service.qr && (
+          <div className="flex flex-wrap items-center gap-5 border-b border-line p-4">
+            <QrCode value={service.qr.url} label={`QR code to open ${service.name} on your phone`} />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <p className="text-[15px] font-semibold">Open on your phone</p>
+              <p className="text-[13px] leading-relaxed text-ink-soft">{service.qr.hint}</p>
+              <code className="break-all font-mono text-xs select-all">{service.qr.url}</code>
             </div>
           </div>
         )}
         <div
           ref={box}
           role="log"
-          aria-label={`${current?.name ?? 'Service'} output`}
+          aria-label={`${service.name} output`}
           onScroll={(e) => {
             const el = e.currentTarget
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
@@ -103,7 +65,7 @@ export function OutputPanel({
           className="h-[360px] overflow-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.75]"
         >
           {logs.length === 0 ? (
-            <p className="text-ink-soft">No output yet. Start {current?.name ?? 'a service'} to see its logs here.</p>
+            <p className="text-ink-soft">Nothing yet. Start {service.name} and its output shows up here.</p>
           ) : (
             logs.map((l) => (
               <div key={l.seq} className={`flex gap-3.5 whitespace-pre-wrap ${LEVEL[l.level]}`}>

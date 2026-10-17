@@ -10,20 +10,40 @@ export interface LogLine {
   level: LogLevel
 }
 
+/** One service as written in pitwall.config.json. */
+export interface ServiceConfig {
+  id: string
+  name: string
+  command: string
+  /** Folder to run in, relative to the project's path. Defaults to the project folder. */
+  cwd?: string
+}
+
+/** One project as written in pitwall.config.json. */
+export interface ProjectConfig {
+  id: string
+  name: string
+  path: string
+  services: ServiceConfig[]
+  /** Suggestions the person dismissed ("cwd|command"). */
+  ignore?: string[]
+}
+
 export interface ServiceView {
   id: string
   name: string
   command: string
-  cwdLabel: string
   status: ServiceStatus
   exitCode: number | null
   url: string | null
   startedAt: number | null
   lastSeq: number
+  /** For Expo apps: the link to scan with a phone, while running. */
+  qr: { url: string; hint: string } | null
 }
 
 export type TaskSource = 'manual' | 'terminal' | 'console' | 'email'
-export type TaskStatus = 'new' | 'approved' | 'rejected'
+export type TaskStatus = 'open' | 'done'
 
 export interface Task {
   id: string
@@ -34,6 +54,11 @@ export interface Task {
   sourceLabel: string
   createdAt: number
   status: TaskStatus
+  /** Crash tasks: how many times the same error happened, and when last. */
+  count?: number
+  lastSeenAt?: number
+  signature?: string
+  serviceId?: string
 }
 
 export interface ProjectSummary {
@@ -50,10 +75,9 @@ export interface ProjectState {
   logService: string | null
   logs: LogLine[]
   tasks: Task[]
-  configSource: 'local' | 'example'
 }
 
-/** A service the folder scan proposes; the person confirms or edits it. */
+/** A service the folder scan proposes. */
 export interface DetectedService {
   id: string
   name: string
@@ -77,16 +101,21 @@ export interface ScanResult {
   notes: string[]
 }
 
-export interface NewProjectInput {
-  id: string
-  name: string
-  path: string
-  services: { id: string; name: string; command: string; cwd: string }[]
+export type OpenResult =
+  | { status: 'opened'; id: string; existing: boolean }
+  /** Nothing runnable found: the person adds the first service by hand. */
+  | { status: 'empty'; path: string; displayPath: string; name: string }
+
+/** Everything needed to undo removing a project. */
+export interface RemovedProject {
+  project: ProjectConfig
+  index: number
+  tasks: Task[]
 }
 
-export interface EditableProject extends NewProjectInput {
-  /** Ids of services running right now. */
-  running: string[]
-  taskCount: number
-  configSource: 'local' | 'example'
+/** Everything needed to undo removing a service. */
+export interface RemovedService {
+  projectId: string
+  service: ServiceConfig
+  index: number
 }

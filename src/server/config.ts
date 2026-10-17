@@ -1,52 +1,18 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { ProjectConfig, ServiceConfig } from './types'
 
-export interface ServiceConfig {
-  id: string
-  name: string
-  command: string
-  /** Folder to run in, relative to the project's path. Defaults to the project folder. */
-  cwd?: string
-}
-
-export interface ProjectConfig {
-  id: string
-  name: string
-  path: string
-  services: ServiceConfig[]
-}
+export type { ProjectConfig, ServiceConfig }
 
 const ROOT = process.cwd()
-const LOCAL = path.join(ROOT, 'pitwall.config.json')
-const EXAMPLE = path.join(ROOT, 'pitwall.config.example.json')
+const FILE = path.join(ROOT, 'pitwall.config.json')
+
+type RawConfig = { projects?: ProjectConfig[] } & Record<string, unknown>
 
 export function expand(p: string, base: string = ROOT) {
   if (p === '~' || p.startsWith('~/')) return path.resolve(os.homedir(), p.slice(2))
   return path.resolve(base, p)
-}
-
-/** Read on every call so edits to the config show up without a restart. */
-export function loadConfig() {
-  const source = fs.existsSync(LOCAL) ? ('local' as const) : ('example' as const)
-  const file = source === 'local' ? LOCAL : EXAMPLE
-  const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-    projects?: ProjectConfig[]
-  }
-  const projects = (raw.projects ?? []).map((p) => ({
-    ...p,
-    path: expand(p.path, ROOT),
-    services: p.services ?? [],
-  }))
-  return { source, projects }
-}
-
-export function findProject(id: string) {
-  return loadConfig().projects.find((p) => p.id === id)
-}
-
-export function serviceCwd(project: ProjectConfig, s: ServiceConfig) {
-  return s.cwd ? expand(s.cwd, project.path) : project.path
 }
 
 export function displayPath(p: string) {
@@ -54,48 +20,72 @@ export function displayPath(p: string) {
   return p.startsWith(home) ? '~' + p.slice(home.length) : p
 }
 
-/** Add a project to pitwall.config.json, creating the file on first use. */
-export function saveProject(project: ProjectConfig) {
-  const current = fs.existsSync(LOCAL)
-    ? (JSON.parse(fs.readFileSync(LOCAL, 'utf8')) as { projects?: ProjectConfig[] })
-    : { projects: [] }
-  const projects = current.projects ?? []
-  if (projects.some((p) => p.id === project.id)) {
-    throw new Error(`A project with the id "${project.id}" already exists`)
-  }
-  fs.writeFileSync(
-    LOCAL,
-    JSON.stringify({ ...current, projects: [...projects, project] }, null, 2) + '\n',
-  )
-}
-
-type RawConfig = { projects?: ProjectConfig[] } & Record<string, unknown>
-
-/** The config as written on disk (paths not expanded), from the local file or the example. */
+/** The config as written on disk (paths not expanded). */
 function readRaw(): RawConfig {
-  const file = fs.existsSync(LOCAL) ? LOCAL : EXAMPLE
-  return JSON.parse(fs.readFileSync(file, 'utf8')) as RawConfig
+  try {
+    return JSON.parse(fs.readFileSync(FILE, 'utf8')) as RawConfig
+  } catch {
+    return { projects: [] }
+  }
 }
 
-function writeLocal(config: RawConfig) {
-  fs.writeFileSync(LOCAL, JSON.stringify(config, null, 2) + '\n')
+function writeRaw(config: RawConfig) {
+  fs.writeFileSync(FILE, JSON.stringify(config, null, 2) + '\n')
 }
 
-/** The project as written in the config, for editing. */
+function edit(fn: (projects: ProjectConfig[]) => ProjectConfig[]) {
+  const config = readRaw()
+  writeRaw({ ...config, projects: fn(config.projects ?? []) })
+}
+
+/** Read on every call so edits to the config show up without a restart. */
+export function loadConfig() {
+  return (readRaw().projects ?? []).map((p) => ({
+    ...p,
+    path: expand(p.path),
+    services: p.services ?? [],
+  }))
+}
+
+export function findProject(id: string) {
+  return loadConfig().find((p) => p.id === id)
+}
+
+/** The project exactly as written in the config. */
 export function rawProject(id: string) {
   return (readRaw().projects ?? []).find((p) => p.id === id)
 }
 
-export function updateProject(id: string, next: ProjectConfig) {
-  const config = readRaw()
-  const projects = config.projects ?? []
-  const i = projects.findIndex((p) => p.id === id)
-  if (i === -1) throw new Error(`Unknown project: ${id}`)
-  projects[i] = next
-  writeLocal({ ...config, projects })
+export function serviceCwd(project: ProjectConfig, s: ServiceConfig) {
+  return s.cwd ? expand(s.cwd, project.path) : project.path
 }
 
+export function insertProject(project: ProjectConfig, index?: number) {
+  edit((projects) => {
+    if (projects.some((p) => p.id === project.id)) {
+      throw new Error(`A project with the id "${project.id}" already exists`)
+    }
+    const next = [...projects]
+    next.splice(index ?? next.length, 0, project)
+    return next
+  })
+}
+
+export function updateProject(id: string, change: (p: ProjectConfig) => ProjectConfig) {
+  edit((projects) => {
+    if (!projects.some((p) => p.id === id)) throw new Error(`Unknown project: ${id}`)
+    return projects.map((p) => (p.id === id ? change(p) : p))
+  })
+}
+
+/** Remove a project and return it with its position, for undo. */
 export function removeProject(id: string) {
-  const config = readRaw()
-  writeLocal({ ...config, projects: (config.projects ?? []).filter((p) => p.id !== id) })
+  let removed: { project: ProjectConfig; index: number } | null = null
+  edit((projects) => {
+    const index = projects.findIndex((p) => p.id === id)
+    if (index === -1) return projects
+    removed = { project: projects[index], index }
+    return projects.filter((p) => p.id !== id)
+  })
+  return removed as { project: ProjectConfig; index: number } | null
 }
