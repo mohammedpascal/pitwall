@@ -146,6 +146,9 @@ Then:
 - Installed for your projects: Node, npm, pnpm and yarn (through corepack),
   bun, git, the GitHub CLI, and build tools for native npm modules.
 - Projects live in `/home/pitwall/projects`; Pitwall's data in `/var/lib/pitwall`.
+  For another projects folder, install with `PITWALL_PROJECTS=/srv/code`
+  (`curl … | sudo PITWALL_PROJECTS=/srv/code bash`); running the installer
+  again keeps it. Locally, set `PITWALL_PROJECTS` before `npm run dev`.
 - `pitwall logs | restart | status | update`. Running the installer again
   updates Pitwall and keeps everything.
 

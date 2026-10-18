@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { createServerFn } from '@tanstack/react-start'
 import {
@@ -79,9 +80,14 @@ function toConfig(s: { id: string; name: string; command: string; cwd: string })
 // ── Reading ─────────────────────────────────────────────────────────────────
 
 /** Where the folder box starts: the installer's projects folder on a cloud machine. */
-export const getProjectsHome = createServerFn({ method: 'GET' }).handler(async () =>
-  cloudDomain() ? '~/projects/' : '~/src/',
-)
+/** Where the folder box starts. PITWALL_PROJECTS overrides it; ~ stays ~ so the box reads short. */
+export const getProjectsHome = createServerFn({ method: 'GET' }).handler(async () => {
+  const set = process.env.PITWALL_PROJECTS?.trim()
+  if (!set) return cloudDomain() ? '~/projects/' : '~/src/'
+  const home = os.homedir()
+  const short = set === home || set.startsWith(home + '/') ? '~' + set.slice(home.length) : set
+  return short.endsWith('/') ? short : short + '/'
+})
 
 export const getProjects = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectSummary[]> => {

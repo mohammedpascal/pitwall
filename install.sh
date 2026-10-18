@@ -13,6 +13,7 @@
 #                     PITWALL_VERSION=v0.2.0           (default: latest release)
 #                     PITWALL_SKIP_DNS_CHECK=1         (don't wait for DNS)
 #                     PITWALL_TARBALL=<url>            (install this build instead)
+#                     PITWALL_PROJECTS=/srv/code       (default: /home/pitwall/projects)
 set -euo pipefail
 
 REPO="${PITWALL_REPO:-mohammedpascal/pitwall}"
@@ -125,7 +126,12 @@ step "Setting up the pitwall user"
 if ! id "$USER_NAME" >/dev/null 2>&1; then
   useradd --create-home --home-dir "$HOME_DIR" --shell /bin/bash "$USER_NAME"
 fi
-install -d -o "$USER_NAME" -g "$USER_NAME" "$HOME_DIR/projects" "$DATA"
+# The projects folder: given, or the one from the last install, or the default.
+existing_projects=$(sed -n 's/^Environment=PITWALL_PROJECTS=//p' /etc/systemd/system/pitwall.service 2>/dev/null | head -1)
+PROJECTS="${PITWALL_PROJECTS:-${existing_projects:-$HOME_DIR/projects}}"
+PROJECTS="${PROJECTS%/}"
+[[ "$PROJECTS" = /* ]] || die "PITWALL_PROJECTS must be a full path, like /srv/code."
+install -d -o "$USER_NAME" -g "$USER_NAME" "$PROJECTS" "$DATA"
 # runuser is always there; sudo isn't on minimal images.
 as_pitwall() { runuser -u "$USER_NAME" -- env HOME="$HOME_DIR" bash -lc "$1"; }
 
@@ -226,6 +232,7 @@ Environment=NODE_ENV=production
 Environment=PORT=$UI_PORT
 Environment=HOST=127.0.0.1
 Environment=PITWALL_GATEWAY_PORT=$GATEWAY_PORT
+Environment=PITWALL_PROJECTS=$PROJECTS
 # No terminal to answer corepack's "download pnpm?" question.
 Environment=COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 Environment=PATH=$HOME_DIR/.bun/bin:$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -299,8 +306,8 @@ fi
 say ""
 say "Next:"
 say "  1. Sign in to Claude and GitHub:   sudo pitwall sign-in"
-say "  2. Put your projects in $HOME_DIR/projects (as the pitwall user):"
-say "       sudo -iu $USER_NAME git clone <repo> projects/<name>"
+say "  2. Put your projects in $PROJECTS (as the pitwall user):"
+say "       sudo -iu $USER_NAME git clone <repo> $PROJECTS/<name>"
 say "  3. In Pitwall, open a project from that folder."
 say ""
 say "${dim}The first visit to each address takes a few seconds while its certificate is issued.${reset}"
