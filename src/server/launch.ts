@@ -1,8 +1,11 @@
+import fs from 'node:fs'
 import net from 'node:net'
+import path from 'node:path'
 import { configuredDomain, serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
 import { hasPortFlag, withPortFlags, withoutPortless } from './ports'
 import { isExpoApp } from './expo'
 import * as pm from './processes'
+import { packageManager } from './scan'
 
 /**
  * Every service start goes through here, so Pitwall can supply what an
@@ -13,6 +16,9 @@ import * as pm from './processes'
  * Expo reads RCT_METRO_PORT as its port when the command has no --port, so
  * Pitwall picks a free one and passes it that way. The project and its
  * command stay exactly as they are.
+ *
+ * A fresh clone has no node_modules; Pitwall installs them first, in the same
+ * output, as you would in a terminal.
  */
 
 // Ports handed to Expo services this session, so two starting at once don't collide.
@@ -48,6 +54,16 @@ export function assignedPort(key: string) {
   return given.get(key) ?? null
 }
 
+/** `npm install && …` when the service's folder (or the project's, in a workspace) has none. */
+function withInstall(command: string, cwd: string, root: string) {
+  if (!fs.existsSync(path.join(cwd, 'package.json'))) return command
+  const dirs = [...new Set([cwd, root])]
+  if (dirs.some((d) => fs.existsSync(path.join(d, 'node_modules')))) return command
+  // The lockfile says which package manager; a workspace keeps it at the project's root.
+  const lockDir = dirs.find((d) => packageManager(d) !== 'npm') ?? cwd
+  return `${packageManager(lockDir)} install && ${command}`
+}
+
 export async function launch(project: ProjectConfig, s: ServiceConfig) {
   const key = `${project.id}:${s.id}`
   if (isUp(key)) return
@@ -76,7 +92,7 @@ export async function launch(project: ProjectConfig, s: ServiceConfig) {
     }
   }
 
-  pm.start(key, command, cwd, env)
+  pm.start(key, withInstall(command, cwd, project.path), cwd, env)
 }
 
 export async function launchAll(project: ProjectConfig) {

@@ -137,6 +137,11 @@ if [ ! -x "$HOME_DIR/.local/bin/claude" ]; then
   say "Claude Code"
   as_pitwall 'curl -fsSL https://claude.ai/install.sh | bash' >/dev/null
 fi
+# bun's installer only adds itself to .bashrc, which scripts don't read.
+if ! grep -q '.bun/bin' "$HOME_DIR/.profile" 2>/dev/null; then
+  echo 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"' >>"$HOME_DIR/.profile"
+  chown "$USER_NAME:$USER_NAME" "$HOME_DIR/.profile"
+fi
 
 # ── Pitwall ─────────────────────────────────────────────────────────────────
 step "Installing Pitwall"
@@ -235,9 +240,23 @@ systemctl daemon-reload
 systemctl enable pitwall >/dev/null 2>&1
 systemctl restart pitwall
 
+# ── Firewall ────────────────────────────────────────────────────────────────
+step "Firewall"
+# Before Caddy starts: turning the firewall on drops connections in flight,
+# which would cut off Caddy's first certificate request.
+# Keep whatever port SSH really listens on, so this never locks you out.
+ssh_ports=$(ss -ltnpH 2>/dev/null | awk '/sshd/ {n=split($4,a,":"); print a[n]}' | sort -u)
+for p in ${ssh_ports:-22}; do ufw allow "$p/tcp" >/dev/null; done
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
+ufw --force enable >/dev/null
+say "Open: SSH (${ssh_ports:-22}), 80, 443. Everything else, including dev servers, stays private."
+
 # ── HTTPS ───────────────────────────────────────────────────────────────────
 step "Configuring Caddy"
-if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'Managed by Pitwall' /etc/caddy/Caddyfile; then
+# The package's sample file isn't worth keeping; one you wrote is.
+if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'Managed by Pitwall' /etc/caddy/Caddyfile \
+  && ! grep -q '^# The Caddyfile is an easy way to configure your Caddy web server' /etc/caddy/Caddyfile; then
   cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.before-pitwall"
   say "Saved your previous Caddyfile as /etc/caddy/Caddyfile.before-pitwall"
 fi
@@ -265,16 +284,6 @@ EOF
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || die "Caddy rejected the generated config. See: caddy validate --config /etc/caddy/Caddyfile"
 systemctl enable caddy >/dev/null 2>&1
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
-
-# ── Firewall ────────────────────────────────────────────────────────────────
-step "Firewall"
-# Keep whatever port SSH really listens on, so this never locks you out.
-ssh_ports=$(ss -ltnpH 2>/dev/null | awk '/sshd/ {n=split($4,a,":"); print a[n]}' | sort -u)
-for p in ${ssh_ports:-22}; do ufw allow "$p/tcp" >/dev/null; done
-ufw allow 80/tcp >/dev/null
-ufw allow 443/tcp >/dev/null
-ufw --force enable >/dev/null
-say "Open: SSH (${ssh_ports:-22}), 80, 443. Everything else, including dev servers, stays private."
 
 # ── Done ────────────────────────────────────────────────────────────────────
 say ""

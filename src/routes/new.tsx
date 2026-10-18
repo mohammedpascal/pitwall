@@ -2,11 +2,11 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ErrorNote, FolderInput, PageHeader } from '#/components/ui'
 import { errorMessage } from '#/lib/errors'
-import { createProject, getProjects, openProject } from '#/server/fns'
+import { createProject, getProjects, getProjectsHome, openProject } from '#/server/fns'
 import type { OpenResult } from '#/server/types'
 
 export const Route = createFileRoute('/new')({
-  loader: async () => ({ projects: await getProjects() }),
+  loader: async () => ({ projects: await getProjects(), home: await getProjectsHome() }),
   head: () => ({ meta: [{ title: 'Open a project · Pitwall' }] }),
   component: OpenProject,
 })
@@ -14,9 +14,9 @@ export const Route = createFileRoute('/new')({
 type Empty = Extract<OpenResult, { status: 'empty' }>
 
 function OpenProject() {
-  const { projects } = Route.useLoaderData()
+  const { projects, home } = Route.useLoaderData()
   const navigate = useNavigate()
-  const [folder, setFolder] = useState('~/src/')
+  const [folder, setFolder] = useState<string>(home)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [empty, setEmpty] = useState<Empty | null>(null)

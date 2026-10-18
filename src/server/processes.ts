@@ -149,8 +149,10 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals) {
  */
 function serviceEnv() {
   const env: NodeJS.ProcessEnv = { ...process.env, FORCE_COLOR: '0' }
+  // Pitwall's own settings, not the project's. NODE_ENV=production (how the
+  // cloud install runs Pitwall) would make npm skip devDependencies.
   for (const k of Object.keys(env)) {
-    if (k === 'PORT' || k === 'HOST' || k.startsWith('PORTLESS_')) delete env[k]
+    if (k === 'PORT' || k === 'HOST' || k === 'NODE_ENV' || k.startsWith('PORTLESS_')) delete env[k]
   }
   return env
 }

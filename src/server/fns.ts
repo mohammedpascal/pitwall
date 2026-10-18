@@ -78,6 +78,11 @@ function toConfig(s: { id: string; name: string; command: string; cwd: string })
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
+/** Where the folder box starts: the installer's projects folder on a cloud machine. */
+export const getProjectsHome = createServerFn({ method: 'GET' }).handler(async () =>
+  cloudDomain() ? '~/projects/' : '~/src/',
+)
+
 export const getProjects = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectSummary[]> => {
     startLifecycle()

@@ -35,7 +35,7 @@ function title(s: string) {
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
-function packageManager(dir: string): PackageManager {
+export function packageManager(dir: string): PackageManager {
   if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
   if (fs.existsSync(path.join(dir, 'yarn.lock'))) return 'yarn'
   if (fs.existsSync(path.join(dir, 'bun.lockb')) || fs.existsSync(path.join(dir, 'bun.lock'))) return 'bun'

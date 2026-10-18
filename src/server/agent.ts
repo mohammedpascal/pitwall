@@ -75,7 +75,14 @@ export class AgentError extends Error {}
 export function childEnv() {
   const env = { ...process.env }
   for (const k of Object.keys(env)) {
-    if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_') || k === 'PORT' || k === 'HOST' || k.startsWith('PORTLESS_'))
+    if (
+      k === 'CLAUDECODE' ||
+      k.startsWith('CLAUDE_CODE_') ||
+      k === 'PORT' ||
+      k === 'HOST' ||
+      k === 'NODE_ENV' ||
+      k.startsWith('PORTLESS_')
+    )
       delete env[k]
   }
   return env

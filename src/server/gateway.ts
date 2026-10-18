@@ -40,14 +40,15 @@ function upstream(route: Route): { host: string; port: number } | null {
     try {
       const u = new URL(v.url)
       const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80)
-      // 0.0.0.0 and localhost both mean "this machine"; ask for it by IP.
-      return { host: '127.0.0.1', port }
+      // 0.0.0.0 and localhost both mean "this machine". Dial "localhost": Node
+      // tries 127.0.0.1 and ::1, and a dev server bound to "localhost" may be on either.
+      return { host: 'localhost', port }
     } catch {
       /* fall back to the assigned port */
     }
   }
   const port = assignedPort(key)
-  return port ? { host: '127.0.0.1', port } : null
+  return port ? { host: 'localhost', port } : null
 }
 
 function page(res: http.ServerResponse, status: number, title: string, body: string, refresh = false) {
