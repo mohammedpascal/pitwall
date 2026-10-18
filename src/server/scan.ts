@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { displayPath, expand, loadConfig } from './config'
+import { configuredDomain, displayPath, expand, loadConfig } from './config'
 import type { DetectedService, PackageManager, ScanResult } from './types'
 
 interface Pkg {
@@ -141,7 +141,8 @@ function servicesFor(
       // The script already runs through portless.
     } else if (/(^|\s)(--port|-p)[\s=]\d+/.test(body)) {
       notes.push(`${name}’s ${main} script sets its own port, so it runs on that port instead of a portless URL.`)
-    } else if (hasPortless()) {
+    } else if (!configuredDomain() && hasPortless()) {
+      // On a cloud machine Pitwall gives each service its own address instead.
       command = `portless ${multi && rel ? `${id}.${projectSlug}` : projectSlug} ${command}`
     }
     out.push({ id, name, command, cwd: rel, kind: kind ?? 'Node', enabled: true })
@@ -262,7 +263,7 @@ export function scanFolder(input: string): ScanResult {
     notes.push('Extra dev scripts (workers, watchers) are listed but off. Turn on the ones you run.')
   }
   if (!services.length && !notes.length) notes.push('No package.json or compose file found here. Add services by hand.')
-  if (!hasPortless() && services.some((s) => s.kind !== 'Expo' && !s.kind.startsWith('Compose'))) {
+  if (!configuredDomain() && !hasPortless() && services.some((s) => s.kind !== 'Expo' && !s.kind.startsWith('Compose'))) {
     notes.push('portless is not installed, so services run on their usual ports. Install it with npm i -g portless.')
   }
 

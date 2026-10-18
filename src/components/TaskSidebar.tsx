@@ -1,25 +1,33 @@
-import { useState } from 'react'
-import type { Task } from '#/server/types'
+import { useEffect, useRef, useState } from 'react'
+import type { AttachmentUpload, Task } from '#/server/types'
 import { ago } from '#/lib/format'
-import { PlusIcon, sourceIcon } from './icons'
+import { KIND, STAGE, byAttention, isClosed } from '#/lib/stages'
+import { PaperclipIcon, PlusIcon, sourceIcon } from './icons'
 
 export function TaskSidebar({
   projectName,
   tasks,
   now,
+  selected,
   onAdd,
-  onDone,
+  onOpen,
+  onAction,
   onReopen,
 }: {
   projectName: string
   tasks: Task[]
   now: number
-  onAdd: (title: string) => Promise<void>
-  onDone: (task: Task) => void
+  selected: string | null
+  /** Resolves true once the task is added. */
+  onAdd: (title: string, attachments: AttachmentUpload[]) => Promise<boolean>
+  onOpen: (task: Task) => void
+  /** The card's one button: Plan, Review plan or Check it. */
+  onAction: (task: Task) => void
   onReopen: (task: Task) => void
 }) {
-  const open = tasks.filter((t) => t.status === 'open')
-  const done = tasks.filter((t) => t.status === 'done')
+  const open = tasks.filter((t) => !isClosed(t)).sort(byAttention)
+  const closed = tasks.filter(isClosed)
+  const yours = open.filter((t) => STAGE[t.stage].yours).length
 
   return (
     <aside
@@ -28,34 +36,44 @@ export function TaskSidebar({
     >
       <h2 id="tasks-h" className="flex items-baseline gap-2 text-lg font-semibold">
         Needs you
-        {open.length > 0 && <span className="text-[15px] font-medium text-ink-soft">{open.length}</span>}
+        {yours > 0 && <span className="text-[15px] font-medium text-ink-soft">{yours}</span>}
       </h2>
 
       <div className="flex flex-col gap-2.5">
         {open.length === 0 && (
           <p className="rounded-[14px] border border-dashed border-line px-3 py-6 text-center text-[13px] leading-relaxed text-ink-soft">
-            Nothing needs you. When a service crashes, it shows up here.
+            Nothing needs you. Crashes and tasks you add show up here, and Claude reads each one.
           </p>
         )}
         {open.map((t) => (
-          <TaskCard key={t.id} task={t} now={now} onDone={() => onDone(t)} />
+          <TaskCard
+            key={t.id}
+            task={t}
+            now={now}
+            selected={t.id === selected}
+            onOpen={() => onOpen(t)}
+            onAction={() => onAction(t)}
+          />
         ))}
       </div>
 
       <AddTask projectName={projectName} onAdd={onAdd} />
 
-      {done.length > 0 && (
+      {closed.length > 0 && (
         <details className="group mt-2 border-t border-line-soft pt-4">
           <summary className="flex list-none items-center gap-1.5 text-[13px] font-semibold text-ink-soft select-none [&::-webkit-details-marker]:hidden">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
               <path d="M9 18l6-6-6-6" />
             </svg>
-            Done {done.length}
+            Done {closed.length}
           </summary>
           <ul className="mt-3 flex flex-col">
-            {done.map((t) => (
+            {closed.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-2 py-1.5">
-                <span className="min-w-0 truncate text-[13px] text-ink-soft line-through decoration-ink-faint">{t.title}</span>
+                <button type="button" onClick={() => onOpen(t)} className="flex min-w-0 flex-col text-left">
+                  <span className="truncate text-[13px] text-ink-soft line-through decoration-ink-faint">{t.title}</span>
+                  {t.closedReason && <span className="truncate text-xs text-ink-faint">{t.closedReason}</span>}
+                </button>
                 <button
                   type="button"
                   onClick={() => onReopen(t)}
@@ -72,62 +90,162 @@ export function TaskSidebar({
   )
 }
 
-function TaskCard({ task: t, now, onDone }: { task: Task; now: number; onDone: () => void }) {
+function TaskCard({
+  task: t,
+  now,
+  selected,
+  onOpen,
+  onAction,
+}: {
+  task: Task
+  now: number
+  selected: boolean
+  onOpen: () => void
+  onAction: () => void
+}) {
   const Icon = sourceIcon[t.source]
   const count = t.count ?? 1
+  const stage = STAGE[t.stage]
   return (
-    <article className="flex flex-col gap-2.5 rounded-[14px] border border-line bg-surface p-3.5">
+    <article
+      onClick={onOpen}
+      className={`flex cursor-pointer flex-col gap-2.5 rounded-[14px] border bg-surface p-3.5 ${
+        selected ? 'border-ink' : 'border-line hover:border-ink-faint'
+      }`}
+    >
       <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
         <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+          {t.kind && (
+            <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">{KIND[t.kind]}</span>
+          )}
           <Icon />
           {t.sourceLabel}
+          {t.attachments?.length ? (
+            <span className="inline-flex items-center gap-0.5" title={`${t.attachments.length} attached`}>
+              <PaperclipIcon size={12} />
+              {t.attachments.length}
+            </span>
+          ) : null}
         </span>
         <span className="flex-none">{ago(t.lastSeenAt ?? t.createdAt, now)}</span>
       </div>
-      <div className="text-sm leading-snug font-medium break-words">
+      <button type="button" onClick={onOpen} className="text-left text-sm leading-snug font-medium break-words">
         {t.title}
         {count > 1 && (
           <span className="ml-1.5 inline-flex rounded-full bg-line-soft px-1.5 py-0.5 align-middle text-[11px] font-semibold text-ink-soft">
             ×{count}
           </span>
         )}
-      </div>
+      </button>
+      {t.error && <p className="text-xs leading-snug text-err">{t.error}</p>}
       <div className="flex items-center justify-between gap-2">
-        {t.detail ? (
-          <details className="min-w-0 flex-1 text-xs">
-            <summary className="text-ink-soft">Output</summary>
-            <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-bg p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
-              {t.detail}
-            </pre>
-          </details>
-        ) : (
-          <span />
+        <span className={`inline-flex items-center gap-1.5 text-xs ${stage.working ? 'text-ink-soft' : 'font-medium text-ink'}`}>
+          {stage.working && <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-ink-soft" />}
+          {stage.label}
+        </span>
+        {stage.action && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onAction()
+            }}
+            className="h-9 flex-none rounded-lg bg-ink px-3 text-[13px] font-medium text-white hover:bg-ink/85"
+          >
+            {stage.action}
+          </button>
         )}
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-9 flex-none self-start rounded-lg border border-line px-3 text-[13px] font-medium hover:bg-line-soft"
-        >
-          Done
-        </button>
       </div>
     </article>
   )
 }
 
-function AddTask({ projectName, onAdd }: { projectName: string; onAdd: (title: string) => Promise<void> }) {
+/** A file picked, pasted or dropped, before the task is added. */
+interface Picked {
+  id: number
+  file: File
+  /** Thumbnail for images. */
+  preview: string | null
+}
+
+const MAX_FILE = 20 * 1024 * 1024
+let nextId = 0
+
+function toUpload(file: File): Promise<AttachmentUpload> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve({ name: file.name, type: file.type, data: String(r.result).split(',')[1] ?? '' })
+    r.onerror = () => reject(new Error(`Couldn’t read ${file.name}`))
+    r.readAsDataURL(file)
+  })
+}
+
+const kb = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
+
+function AddTask({
+  projectName,
+  onAdd,
+}: {
+  projectName: string
+  onAdd: (title: string, attachments: AttachmentUpload[]) => Promise<boolean>
+}) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
+  const [files, setFiles] = useState<Picked[]>([])
   const [saving, setSaving] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const picker = useRef<HTMLInputElement>(null)
+
+  // Thumbnails are object URLs; let them go when the files do.
+  const urls = useRef(new Set<string>())
+  useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), [])
+
+  function addFiles(list: FileList | File[]) {
+    const incoming = [...list]
+    const tooBig = incoming.filter((f) => f.size > MAX_FILE)
+    setProblem(tooBig.length ? `${tooBig.map((f) => f.name).join(', ')} ${tooBig.length > 1 ? 'are' : 'is'} over 20 MB` : null)
+    const picked = incoming
+      .filter((f) => f.size <= MAX_FILE)
+      .map((file) => {
+        const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+        if (preview) urls.current.add(preview)
+        // Pasted screenshots are all called image.png; give them a better name.
+        const named =
+          file.name === 'image.png' || !file.name
+            ? new File([file], `screenshot-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`, { type: file.type })
+            : file
+        return { id: ++nextId, file: named, preview }
+      })
+    setFiles((f) => [...f, ...picked].slice(0, 10))
+    setOpen(true)
+  }
+
+  function removeFile(p: Picked) {
+    if (p.preview) {
+      URL.revokeObjectURL(p.preview)
+      urls.current.delete(p.preview)
+    }
+    setFiles((f) => f.filter((x) => x.id !== p.id))
+  }
+
+  function reset() {
+    files.forEach((p) => p.preview && URL.revokeObjectURL(p.preview))
+    setFiles([])
+    setDraft('')
+    setProblem(null)
+    setOpen(false)
+  }
 
   async function submit() {
     const title = draft.trim()
-    if (!title || saving) return
+    if ((!title && !files.length) || saving) return
     setSaving(true)
     try {
-      await onAdd(title)
-      setDraft('')
-      setOpen(false)
+      const uploads = await Promise.all(files.map((p) => toUpload(p.file)))
+      if (await onAdd(title, uploads)) reset()
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -152,7 +270,23 @@ function AddTask({ projectName, onAdd }: { projectName: string; onAdd: (title: s
         e.preventDefault()
         void submit()
       }}
-      className="flex flex-col gap-2 rounded-[14px] border border-ink bg-surface p-3"
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes('Files')) return
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return
+        e.preventDefault()
+        setDragging(false)
+        addFiles(e.dataTransfer.files)
+      }}
+      className={`flex flex-col gap-2 rounded-[14px] border bg-surface p-3 ${
+        dragging ? 'border-dashed border-ink bg-line-soft' : 'border-ink'
+      }`}
     >
       <label htmlFor="new-task" className="sr-only">
         New task
@@ -163,28 +297,91 @@ function AddTask({ projectName, onAdd }: { projectName: string; onAdd: (title: s
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        onPaste={(e) => {
+          // A pasted screenshot becomes an attachment; pasted text stays text.
+          if (e.clipboardData.files.length) {
+            e.preventDefault()
+            addFiles(e.clipboardData.files)
+          }
+        }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          // Enter adds it, like a chat box; Shift+Enter starts a new line.
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             void submit()
           } else if (e.key === 'Escape') {
-            setOpen(false)
+            reset()
           }
         }}
-        placeholder={`What needs doing in ${projectName}?`}
+        placeholder={dragging ? 'Drop to attach' : `What needs doing in ${projectName}?`}
         className="resize-y bg-transparent text-sm leading-normal outline-none placeholder:text-ink-faint"
       />
-      <div className="flex items-center justify-end gap-1.5">
-        <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-lg px-3 text-[13px] font-medium hover:bg-line-soft">
-          Cancel
-        </button>
+
+      {files.length > 0 && (
+        <ul aria-label="Attachments" className="flex flex-wrap gap-2">
+          {files.map((p) => (
+            <li key={p.id} className="flex max-w-full items-center gap-2 rounded-lg border border-line bg-bg py-1 pr-1 pl-1">
+              {p.preview ? (
+                <img src={p.preview} alt="" className="size-8 flex-none rounded object-cover" />
+              ) : (
+                <span className="flex size-8 flex-none items-center justify-center rounded bg-line-soft text-ink-soft">
+                  <PaperclipIcon size={14} />
+                </span>
+              )}
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="max-w-[150px] truncate text-xs font-medium">{p.file.name}</span>
+                <span className="text-[11px] text-ink-soft">{kb(p.file.size)}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => removeFile(p)}
+                aria-label={`Remove ${p.file.name}`}
+                className="flex size-7 flex-none items-center justify-center rounded-md text-ink-soft hover:bg-line-soft hover:text-ink"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {problem && (
+        <p role="alert" className="text-xs text-err">
+          {problem}
+        </p>
+      )}
+
+      <div className="flex items-center justify-between gap-1.5">
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) addFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
         <button
-          type="submit"
-          disabled={!draft.trim() || saving}
-          className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
+          type="button"
+          onClick={() => picker.current?.click()}
+          aria-label="Attach files"
+          title="Attach files, or paste or drop them here"
+          className="flex size-9 items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
         >
-          Add
+          <PaperclipIcon />
         </button>
+        <span className="flex items-center gap-1.5">
+          <button type="button" onClick={reset} className="h-9 rounded-lg px-3 text-[13px] font-medium hover:bg-line-soft">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={(!draft.trim() && !files.length) || saving}
+            className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
+          >
+            {saving ? 'Adding…' : 'Add'}
+          </button>
+        </span>
       </div>
     </form>
   )

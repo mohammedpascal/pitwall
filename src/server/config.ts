@@ -8,7 +8,7 @@ export type { ProjectConfig, ServiceConfig }
 const ROOT = process.cwd()
 const FILE = path.join(ROOT, 'pitwall.config.json')
 
-type RawConfig = { projects?: ProjectConfig[] } & Record<string, unknown>
+type RawConfig = { projects?: ProjectConfig[]; domain?: string } & Record<string, unknown>
 
 export function expand(p: string, base: string = ROOT) {
   if (p === '~' || p.startsWith('~/')) return path.resolve(os.homedir(), p.slice(2))
@@ -36,6 +36,15 @@ function writeRaw(config: RawConfig) {
 function edit(fn: (projects: ProjectConfig[]) => ProjectConfig[]) {
   const config = readRaw()
   writeRaw({ ...config, projects: fn(config.projects ?? []) })
+}
+
+/**
+ * Set on a cloud machine: services are served at <project>-<service>.<domain>
+ * and Pitwall at pitwall.<domain>. Unset (on a laptop) everything stays local.
+ */
+export function configuredDomain(): string | null {
+  const d = (process.env.PITWALL_DOMAIN ?? readRaw().domain ?? '').trim().toLowerCase().replace(/^\.+|\.+$/g, '')
+  return d || null
 }
 
 /** Read on every call so edits to the config show up without a restart. */

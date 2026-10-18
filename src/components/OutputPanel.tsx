@@ -3,6 +3,7 @@ import type { LogLine, ServiceView } from '#/server/types'
 import { clock } from '#/lib/format'
 import { AlertIcon } from './icons'
 import { QrCode } from './QrCode'
+import { WebPreview } from './WebPreview'
 
 const LEVEL = {
   info: 'text-ink',
@@ -43,6 +44,9 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
               {service.exitCode !== null ? 'It’s in your tasks.' : 'Check its command and folder.'}
             </span>
           </div>
+        )}
+        {service.preview && (
+          <WebPreview id={service.id} name={service.name} url={service.preview.url} embeddable={service.preview.embeddable} />
         )}
         {service.qr && (
           <div className="flex flex-wrap items-center gap-5 border-b border-line p-4">

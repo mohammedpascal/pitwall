@@ -10,12 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
+import { Route as ApiBootRouteImport } from './routes/api/boot'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth.login'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth.logout'
+import { Route as ApiCaddyAskRouteImport } from './routes/api/caddy.ask'
+import { Route as AttachmentsTaskIdFileRouteImport } from './routes/attachments.$taskId.$file'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NewRoute = NewRouteImport.update({
@@ -23,40 +34,117 @@ const NewRoute = NewRouteImport.update({
   path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBootRoute = ApiBootRouteImport.update({
+  id: '/api/boot',
+  path: '/api/boot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PProjectIdRoute = PProjectIdRouteImport.update({
   id: '/p/$projectId',
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCaddyAskRoute = ApiCaddyAskRouteImport.update({
+  id: '/api/caddy/ask',
+  path: '/api/caddy/ask',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AttachmentsTaskIdFileRoute = AttachmentsTaskIdFileRouteImport.update({
+  id: '/attachments/$taskId/$file',
+  path: '/attachments/$taskId/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/new': typeof NewRoute
+  '/api/boot': typeof ApiBootRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/caddy/ask': typeof ApiCaddyAskRoute
+  '/attachments/$taskId/$file': typeof AttachmentsTaskIdFileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/new': typeof NewRoute
+  '/api/boot': typeof ApiBootRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/caddy/ask': typeof ApiCaddyAskRoute
+  '/attachments/$taskId/$file': typeof AttachmentsTaskIdFileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/new': typeof NewRoute
+  '/api/boot': typeof ApiBootRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/caddy/ask': typeof ApiCaddyAskRoute
+  '/attachments/$taskId/$file': typeof AttachmentsTaskIdFileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/new' | '/p/$projectId'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/new'
+    | '/api/boot'
+    | '/p/$projectId'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/caddy/ask'
+    | '/attachments/$taskId/$file'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/new' | '/p/$projectId'
-  id: '__root__' | '/' | '/new' | '/p/$projectId'
+  to:
+    | '/'
+    | '/login'
+    | '/new'
+    | '/api/boot'
+    | '/p/$projectId'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/caddy/ask'
+    | '/attachments/$taskId/$file'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/new'
+    | '/api/boot'
+    | '/p/$projectId'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/caddy/ask'
+    | '/attachments/$taskId/$file'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
+  ApiBootRoute: typeof ApiBootRoute
   PProjectIdRoute: typeof PProjectIdRoute
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiCaddyAskRoute: typeof ApiCaddyAskRoute
+  AttachmentsTaskIdFileRoute: typeof AttachmentsTaskIdFileRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +156,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/new': {
       id: '/new'
       path: '/new'
       fullPath: '/new'
       preLoaderRoute: typeof NewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/boot': {
+      id: '/api/boot'
+      path: '/api/boot'
+      fullPath: '/api/boot'
+      preLoaderRoute: typeof ApiBootRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/p/$projectId': {
@@ -82,13 +184,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/caddy/ask': {
+      id: '/api/caddy/ask'
+      path: '/api/caddy/ask'
+      fullPath: '/api/caddy/ask'
+      preLoaderRoute: typeof ApiCaddyAskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/attachments/$taskId/$file': {
+      id: '/attachments/$taskId/$file'
+      path: '/attachments/$taskId/$file'
+      fullPath: '/attachments/$taskId/$file'
+      preLoaderRoute: typeof AttachmentsTaskIdFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LoginRoute: LoginRoute,
   NewRoute: NewRoute,
+  ApiBootRoute: ApiBootRoute,
   PProjectIdRoute: PProjectIdRoute,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiCaddyAskRoute: ApiCaddyAskRoute,
+  AttachmentsTaskIdFileRoute: AttachmentsTaskIdFileRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

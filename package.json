@@ -10,7 +10,8 @@
     "dev:app": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "generate-routes": "tsr generate"
+    "generate-routes": "tsr generate",
+    "start": "node server.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",

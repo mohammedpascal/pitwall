@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createServerFn } from '@tanstack/react-start'
@@ -12,13 +13,21 @@ import {
   serviceCwd,
   updateProject,
 } from './config'
-import { expoQr } from './expo'
+import { expoQr, isExpoApp } from './expo'
 import { launch, launchAll } from './launch'
+import { webPreview } from './preview'
+import { cloudDomain, hostFor } from './cloud'
 import * as pm from './processes'
 import { scanFolder, slug, suggestFolders } from './scan'
 import { startLifecycle } from './lifecycle'
 import * as tasks from './tasks'
+import { STAGE } from '#/lib/stages'
+import * as attachmentStore from './attachments'
+import * as agent from './agent'
+import * as workflow from './workflow'
+import { readPlan } from './workflow'
 import type {
+  AttachmentUpload,
   DetectedService,
   OpenResult,
   ProjectConfig,
@@ -29,7 +38,8 @@ import type {
   ServiceConfig,
   ServiceStatus,
   ServiceView,
-  TaskStatus,
+  TaskDetail,
+  TaskStage,
 } from './types'
 
 const key = (projectId: string, serviceId: string) => `${projectId}:${serviceId}`
@@ -68,10 +78,15 @@ function toConfig(s: { id: string; name: string; command: string; cwd: string })
 export const getProjects = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectSummary[]> => {
     startLifecycle()
+    const waiting = new Map<string, number>()
+    for (const t of tasks.all()) {
+      if (STAGE[t.stage].yours) waiting.set(t.projectId, (waiting.get(t.projectId) ?? 0) + 1)
+    }
     return loadConfig().map((p) => ({
       id: p.id,
       name: p.name,
       running: p.services.filter((s) => isUp(pm.view(key(p.id, s.id)).status)).length,
+      needsYou: waiting.get(p.id) ?? 0,
     }))
   },
 )
@@ -86,11 +101,23 @@ export const getProjectState = createServerFn({ method: 'GET' })
       project.services.map(async (s) => {
         const k = key(project.id, s.id)
         const view = pm.view(k)
+        const running = view.status === 'running'
+        const cwd = serviceCwd(project, s)
+        // Expo apps open on a phone (QR); web apps open right here (preview).
+        const expo = isExpoApp(cwd, s.command)
         const qr =
-          view.status === 'running'
-            ? await expoQr({ key: k, command: s.command, cwd: serviceCwd(project, s), url: view.url, startedAt: view.startedAt })
+          running && expo
+            ? await expoQr({ key: k, command: s.command, cwd, url: view.url, startedAt: view.startedAt })
             : null
-        return { id: s.id, name: s.name, command: s.command, ...view, qr }
+        const local =
+          running && !expo ? await webPreview({ key: k, url: view.url, startedAt: view.startedAt }) : null
+        // On a cloud machine every link and preview uses the service's public address;
+        // the gateway lets Pitwall's preview frame it.
+        const host = hostFor(project, s)
+        const publicUrl = host ? `https://${host}` : null
+        const url = publicUrl && (view.url || isUp(view.status)) ? publicUrl : view.url
+        const preview = local && publicUrl ? { url: publicUrl, embeddable: true } : local
+        return { id: s.id, name: s.name, command: s.command, ...view, url, qr, preview }
       }),
     )
 
@@ -104,6 +131,7 @@ export const getProjectState = createServerFn({ method: 'GET' })
     return {
       id: project.id,
       name: project.name,
+      cloud: !!cloudDomain(),
       path: displayPath(project.path),
       services,
       logService,
@@ -318,16 +346,144 @@ export const restoreService = createServerFn({ method: 'POST' })
 // ── Tasks ───────────────────────────────────────────────────────────────────
 
 export const addTask = createServerFn({ method: 'POST' })
-  .validator((d: { projectId: string; title: string }) => d)
+  .validator((d: { projectId: string; title: string; attachments?: AttachmentUpload[] }) => d)
   .handler(async ({ data }) => {
-    const title = data.title.trim()
+    const uploads = data.attachments ?? []
+    // Files alone are enough: a screenshot often says it all.
+    const title = data.title.trim() || (uploads.length ? `See ${uploads.map((u) => u.name).join(', ')}` : '')
     if (!title) throw new Error('A task needs a description')
     requireProject(data.projectId)
-    return tasks.add({ projectId: data.projectId, title, source: 'manual', sourceLabel: 'You' })
+    const id = crypto.randomUUID()
+    const attachments = attachmentStore.save(id, uploads)
+    return tasks.add({
+      id,
+      projectId: data.projectId,
+      title,
+      source: 'manual',
+      sourceLabel: 'You',
+      ...(attachments.length ? { attachments } : {}),
+    })
   })
 
-export const setTaskStatus = createServerFn({ method: 'POST' })
-  .validator((d: { id: string; status: TaskStatus }) => d)
+function requireTask(id: string) {
+  const task = tasks.get(id)
+  if (!task) throw new Error('That task is gone')
+  return task
+}
+
+/** Opened in the main panel: the task, Claude's live output, and a plan. */
+export const getTaskDetail = createServerFn({ method: 'GET' })
+  .validator((d: { id: string; v?: number }) => d)
+  .handler(async ({ data }): Promise<TaskDetail | null> => {
+    const task = tasks.get(data.id)
+    if (!task) return null
+    const v = data.v ?? task.plans?.at(-1)?.v
+    const html = v ? readPlan(task.id, v) : null
+    const parent = task.parentId ? tasks.get(task.parentId) : null
+    const followUps = tasks
+      .list(task.projectId)
+      .filter((t) => t.parentId === task.id)
+      .reverse()
+      .map((t) => ({ id: t.id, title: t.title, stage: t.stage }))
+    return {
+      task,
+      log: agent.log(task.id),
+      plan: v && html ? { v, html } : null,
+      working: agent.isRunning(task.id),
+      parent: parent ? { id: parent.id, title: parent.title } : null,
+      followUps,
+    }
+  })
+
+/** Plan it, or revise the plan, steered by what you typed. */
+export const planTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; note?: string }) => d)
   .handler(async ({ data }) => {
-    tasks.setStatus(data.id, data.status)
+    const task = requireTask(data.id)
+    if (agent.isRunning(task.id)) throw new Error('Claude is still working on this task')
+    void workflow.plan(task, data.note)
+  })
+
+export const doTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string }) => d)
+  .handler(async ({ data }) => {
+    const task = requireTask(data.id)
+    if (agent.isRunning(task.id)) throw new Error('Claude is still working on this task')
+    workflow.doIt(task)
+  })
+
+/** After the work: it's right (done), or it isn't and the plan is revised. */
+export const confirmTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; ok: boolean; note?: string }) => d)
+  .handler(async ({ data }) => {
+    const task = requireTask(data.id)
+    if (data.ok) {
+      tasks.update(task.id, { stage: 'done', closedReason: undefined })
+      return
+    }
+    void workflow.plan(task, `It was done, but it isn't right yet: ${data.note?.trim() || 'look again'}`)
+  })
+
+/** A new task that starts from a copy of this one's conversation. */
+export const followUpTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; title: string }) => d)
+  .handler(async ({ data }) => {
+    const parent = requireTask(data.id)
+    const title = data.title.trim()
+    if (!title) throw new Error('Say what to follow up with')
+    const task = tasks.add({
+      projectId: parent.projectId,
+      title,
+      source: 'manual',
+      sourceLabel: 'Follow-up',
+      parentId: parent.id,
+      ...(parent.sessionId ? { sessionId: parent.sessionId } : {}),
+    })
+    return task.id
+  })
+
+/** Close without doing it; returns the stage it had, for undo. */
+export const dismissTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; done?: boolean }) => d)
+  .handler(async ({ data }) => {
+    const task = requireTask(data.id)
+    agent.stop(task.id)
+    tasks.update(task.id, data.done ? { stage: 'done', closedReason: undefined } : { stage: 'dismissed', closedReason: 'Dismissed' })
+    return task.stage
+  })
+
+export const reopenTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; stage?: TaskStage }) => d)
+  .handler(async ({ data }) => {
+    const task = requireTask(data.id)
+    const busy: TaskStage[] = ['new', 'understanding', 'planning', 'doing']
+    const stage = data.stage && !busy.includes(data.stage) ? data.stage : task.plans?.length ? 'planned' : 'ready'
+    tasks.update(task.id, { stage, closedReason: undefined })
+  })
+
+export const stopTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string }) => d)
+  .handler(async ({ data }) => {
+    agent.stop(data.id)
+  })
+
+/** Forget Claude's reading and plans, and read the task afresh. */
+export const restartTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string }) => d)
+  .handler(async ({ data }) => {
+    const task = requireTask(data.id)
+    if (agent.isRunning(task.id)) throw new Error('Stop Claude first')
+    // A follow-up starts again from its parent's conversation; anything else from nothing.
+    const parent = task.parentId ? tasks.get(task.parentId) : null
+    const fresh = tasks.update(task.id, {
+      title: task.original ?? task.title,
+      stage: 'new',
+      sessionId: parent?.sessionId,
+      summary: undefined,
+      kind: undefined,
+      plans: undefined,
+      error: undefined,
+      closedReason: undefined,
+    })
+    if (fresh) void workflow.understand(fresh)
   })

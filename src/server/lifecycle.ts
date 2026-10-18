@@ -2,6 +2,9 @@ import { findProject, loadConfig } from './config'
 import { launch } from './launch'
 import * as pm from './processes'
 import * as tasks from './tasks'
+import { closeFixedCrashes, resumeInterrupted, understand } from './workflow'
+import { cloudDomain } from './cloud'
+import { startGateway } from './gateway'
 
 // Server-only setup. Kept out of fns.ts: top-level code there would be shipped
 // to the browser along with everything it imports.
@@ -42,13 +45,22 @@ function recordCrash(k: string) {
   })
 }
 
-const boot = globalThis as unknown as { __pitwallResumed?: boolean }
+const boot = globalThis as unknown as { __pitwallResumed?: boolean; __pitwallTick?: NodeJS.Timeout }
 
 /** Call from any server function; cheap after the first time. */
 export function startLifecycle() {
   pm.onCrash(recordCrash)
+  // Every new task is read by Claude as soon as it arrives.
+  tasks.onNewTask((t) => void understand(t))
+  // On a cloud machine, apps are reached through the gateway at <name>.<domain>.
+  if (cloudDomain()) startGateway()
+  // Replaced on every call, so a hot reload swaps in the new code.
+  clearInterval(boot.__pitwallTick)
+  boot.__pitwallTick = setInterval(closeFixedCrashes, 5000)
+  boot.__pitwallTick.unref()
   if (boot.__pitwallResumed) return
   boot.__pitwallResumed = true
+  resumeInterrupted()
   // Services you left running start again when Pitwall comes back.
   const projects = loadConfig()
   void (async () => {

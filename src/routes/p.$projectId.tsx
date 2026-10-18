@@ -5,6 +5,7 @@ import { OutputPanel } from '#/components/OutputPanel'
 import { ProjectRail } from '#/components/ProjectRail'
 import { ServiceCard, STATUS } from '#/components/ServiceCard'
 import { TaskSidebar } from '#/components/TaskSidebar'
+import { TaskView, type TaskCommand } from '#/components/TaskView'
 import { FolderInput } from '#/components/ui'
 import { errorMessage } from '#/lib/errors'
 import { PlayIcon, PlusIcon, StopIcon } from '#/components/icons'
@@ -12,27 +13,38 @@ import { showToast } from '#/lib/toast'
 import {
   addService,
   addTask,
+  confirmTask,
+  dismissTask,
+  doTask,
+  followUpTask,
   getProjectState,
+  getTaskDetail,
   getProjects,
   getSuggestions,
   ignoreSuggestion,
+  planTask,
+  reopenTask,
+  restartTask,
   removeProject,
   removeService,
   restoreProject,
   restoreService,
-  setTaskStatus,
   startAll,
   startService,
   stopAll,
   stopService,
+  stopTask,
   updateProjectInfo,
   updateService,
 } from '#/server/fns'
-import type { DetectedService, Task } from '#/server/types'
+import type { DetectedService, Task, TaskDetail } from '#/server/types'
 
 const POLL_MS = 1000
 
 export const Route = createFileRoute('/p/$projectId')({
+  // ?task=<id> opens that task in the main panel, so a task can be linked to.
+  validateSearch: (search: Record<string, unknown>): { task?: string } =>
+    typeof search.task === 'string' && search.task ? { task: search.task } : {},
   loader: async ({ params }) => {
     const [projects, state] = await Promise.all([
       getProjects(),
@@ -42,15 +54,24 @@ export const Route = createFileRoute('/p/$projectId')({
     return { projects, state }
   },
   head: ({ loaderData }) => ({
-    meta: [{ title: loaderData ? `${loaderData.state.name} · Pitwall` : 'Pitwall' }],
+    meta: [{ title: loaderData ? pageTitle(loaderData.state.name, loaderData.projects) : 'Pitwall' }],
   }),
   component: Workspace,
 })
 
+/** "(3) younote · Pitwall": what waits on you across all projects, visible from any tab. */
+function pageTitle(name: string, projects: { needsYou: number }[]) {
+  const waiting = projects.reduce((n, p) => n + p.needsYou, 0)
+  return `${waiting ? `(${waiting}) ` : ''}${name} · Pitwall`
+}
+
 function Workspace() {
   const { projectId } = Route.useParams()
+  const { task: openTaskId } = Route.useSearch()
   const initial = Route.useLoaderData()
   const navigate = useNavigate()
+  const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
+  const [planVersion, setPlanVersion] = useState<number | null>(null)
   const [state, setState] = useState(initial.state)
   const [projects, setProjects] = useState(initial.projects)
   const [selected, setSelected] = useState(initial.state.logService)
@@ -68,20 +89,34 @@ function Workspace() {
   }, [initial])
 
   const refresh = useCallback(async () => {
-    const [s, p] = await Promise.all([
+    const [s, p, d] = await Promise.all([
       getProjectState({ data: { projectId, logService: selected ?? undefined } }),
       getProjects(),
+      openTaskId ? getTaskDetail({ data: { id: openTaskId, v: planVersion ?? undefined } }) : null,
     ])
     if (s) setState(s)
     setProjects(p)
+    setTaskDetail(d)
     setNow(Date.now())
-  }, [projectId, selected])
+  }, [projectId, selected, openTaskId, planVersion])
+
+  function openTask(id: string | null) {
+    setPlanVersion(null)
+    if (!id) setTaskDetail(null)
+    void navigate({ to: '/p/$projectId', params: { projectId }, search: id ? { task: id } : {}, replace: true })
+  }
 
   useEffect(() => {
     void refresh()
     const t = setInterval(() => void refresh(), POLL_MS)
     return () => clearInterval(t)
   }, [refresh])
+
+  // head() only runs on navigation; keep the count current as tasks move.
+  const title = pageTitle(state.name, projects)
+  useEffect(() => {
+    document.title = title
+  }, [title])
 
   const loadSuggestions = useCallback(() => {
     getSuggestions({ data: { projectId } })
@@ -150,17 +185,45 @@ function Workspace() {
     }
   }
 
-  function markDone(task: Task) {
-    void run(`task:${task.id}`, async () => {
-      await setTaskStatus({ data: { id: task.id, status: 'done' } })
-      showToast('Marked done', {
-        label: 'Undo',
-        run: async () => {
-          await setTaskStatus({ data: { id: task.id, status: 'open' } })
-          void refresh()
-        },
-      })
-    })
+  /** Everything you can do to a task; closing ones offer Undo. */
+  async function taskCommand(task: Task, c: TaskCommand) {
+    const id = task.id
+    try {
+      if (c.type === 'plan') await planTask({ data: { id, note: c.note } })
+      else if (c.type === 'do') await doTask({ data: { id } })
+      else if (c.type === 'confirm') await confirmTask({ data: { id, ok: c.ok, note: c.note } })
+      else if (c.type === 'stop') await stopTask({ data: { id } })
+      else if (c.type === 'restart') await restartTask({ data: { id } })
+      else if (c.type === 'reopen') await reopenTask({ data: { id } })
+      else if (c.type === 'follow') {
+        // Open the new task, so you see it being read.
+        const next = await followUpTask({ data: { id, title: c.note } })
+        openTask(next)
+      }
+      else {
+        const stage = await dismissTask({ data: { id, done: c.type === 'done' } })
+        showToast(c.type === 'done' ? 'Marked done' : 'Dismissed', {
+          label: 'Undo',
+          run: async () => {
+            await reopenTask({ data: { id, stage } })
+            void refresh()
+          },
+        })
+      }
+      if (c.type === 'confirm' && c.ok) {
+        showToast('Done', {
+          label: 'Undo',
+          run: async () => {
+            await reopenTask({ data: { id, stage: 'check' } })
+            void refresh()
+          },
+        })
+      }
+      if (c.type === 'plan' || (c.type === 'confirm' && !c.ok)) setPlanVersion(null)
+    } catch (e) {
+      showToast(errorMessage(e))
+    }
+    await refresh()
   }
 
   const current = state.services.find((s) => s.id === selected) ?? state.services[0]
@@ -171,7 +234,7 @@ function Workspace() {
 
   return (
     <div className="flex min-h-screen flex-wrap bg-bg text-sm text-ink">
-      <ProjectRail projects={projects} current={projectId} />
+      <ProjectRail projects={projects} current={projectId} cloud={state.cloud} />
 
       <div className="flex min-w-0 flex-[999_1_560px] flex-wrap">
         <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-7 px-8 pt-7 pb-10 max-sm:px-4">
@@ -258,7 +321,10 @@ function Workspace() {
                     service={s}
                     selected={s.id === current?.id}
                     now={now}
-                    onSelect={() => setSelected(s.id)}
+                    onSelect={() => {
+                      setSelected(s.id)
+                      if (openTaskId) openTask(null)
+                    }}
                     onToggle={() => toggle(s.id)}
                     onSave={(change) => run(s.id, () => updateService({ data: { projectId, serviceId: s.id, ...change } }))}
                     onRemove={() => removeOneService(s.id)}
@@ -304,8 +370,18 @@ function Workspace() {
             )}
           </section>
 
-          {current && (
-            <OutputPanel service={current} logs={current.id === state.logService ? state.logs : []} />
+          {openTaskId && taskDetail?.task.id === openTaskId ? (
+            <TaskView
+              detail={taskDetail}
+              now={now}
+              version={planVersion}
+              onVersion={setPlanVersion}
+              onCommand={(c) => taskCommand(taskDetail.task, c)}
+              onClose={() => openTask(null)}
+              onOpenTask={(id) => openTask(id)}
+            />
+          ) : (
+            current && <OutputPanel service={current} logs={current.id === state.logService ? state.logs : []} />
           )}
         </main>
 
@@ -313,16 +389,25 @@ function Workspace() {
           projectName={state.name}
           tasks={state.tasks}
           now={now}
-          onAdd={async (title) => {
+          onAdd={async (title, attachments) => {
             try {
-              await addTask({ data: { projectId, title } })
+              await addTask({ data: { projectId, title, attachments } })
+              return true
             } catch (e) {
               showToast(errorMessage(e))
+              return false
+            } finally {
+              void refresh()
             }
-            await refresh()
           }}
-          onDone={markDone}
-          onReopen={(task) => void run(`task:${task.id}`, () => setTaskStatus({ data: { id: task.id, status: 'open' } }))}
+          selected={openTaskId ?? null}
+          onOpen={(task) => openTask(task.id)}
+          onAction={(task) => {
+            openTask(task.id)
+            // Plan straight away; steering is in the task view for when you want it.
+            if (task.stage === 'ready') void taskCommand(task, { type: 'plan' })
+          }}
+          onReopen={(task) => void taskCommand(task, { type: 'reopen' })}
         />
       </div>
     </div>

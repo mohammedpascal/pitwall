@@ -1,16 +1,22 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Task, TaskStatus } from './types'
+import type { Task, TaskStage } from './types'
 
 const DIR = path.join(process.cwd(), '.pitwall')
 const FILE = path.join(DIR, 'tasks.json')
 
-/** Older files used new / approved / rejected; those map onto open / done. */
+const closed = (stage: TaskStage) => stage === 'done' || stage === 'dismissed'
+
+/**
+ * Older files have only a status (new / approved / rejected, later open / done).
+ * Open ones wait on you as they are; Claude doesn't re-read old tasks.
+ */
 function normalize(t: Task): Task {
   const status = t.status as string
-  if (status === 'open' || status === 'done') return t
-  return { ...t, status: status === 'new' ? 'open' : 'done' }
+  const stage: TaskStage =
+    t.stage ?? (status === 'open' || status === 'new' ? 'ready' : 'done')
+  return { ...t, stage, status: closed(stage) ? 'done' : 'open' }
 }
 
 function read(): Task[] {
@@ -23,7 +29,7 @@ function read(): Task[] {
 
 function write(tasks: Task[]) {
   fs.mkdirSync(DIR, { recursive: true })
-  fs.writeFileSync(FILE, JSON.stringify(tasks, null, 2))
+  fs.writeFileSync(FILE, JSON.stringify(tasks.map(normalize), null, 2))
 }
 
 const seen = (t: Task) => t.lastSeenAt ?? t.createdAt
@@ -34,14 +40,32 @@ export function list(projectId: string) {
     .sort((a, b) => seen(b) - seen(a))
 }
 
-export function add(input: Omit<Task, 'id' | 'createdAt' | 'status'>) {
+export function all() {
+  return read()
+}
+
+export function get(id: string) {
+  return read().find((t) => t.id === id) ?? null
+}
+
+// Told about every new task, so Claude can read it (see lifecycle.ts).
+const hooks = globalThis as unknown as { __pitwallOnTask?: (task: Task) => void }
+
+export function onNewTask(fn: (task: Task) => void) {
+  hooks.__pitwallOnTask = fn
+}
+
+export function add(input: Omit<Task, 'id' | 'createdAt' | 'status' | 'stage'> & { id?: string }) {
   const task: Task = {
     ...input,
-    id: crypto.randomUUID(),
+    id: input.id ?? crypto.randomUUID(),
     createdAt: Date.now(),
     status: 'open',
+    stage: 'new',
+    original: input.title,
   }
   write([task, ...read()])
+  hooks.__pitwallOnTask?.(task)
   return task
 }
 
@@ -59,12 +83,21 @@ export function recordCrash(input: {
 }) {
   const tasks = read()
   const open = tasks.find(
-    (t) => t.status === 'open' && t.projectId === input.projectId && t.signature === input.signature,
+    (t) => !closed(t.stage) && t.projectId === input.projectId && t.signature === input.signature,
   )
   if (open) {
     write(
       tasks.map((t) =>
-        t === open ? { ...t, count: (t.count ?? 1) + 1, lastSeenAt: Date.now(), detail: input.detail } : t,
+        t === open
+          ? {
+              ...t,
+              count: (t.count ?? 1) + 1,
+              lastSeenAt: Date.now(),
+              detail: input.detail,
+              // Crashed again after the fix: back to you.
+              stage: t.stage === 'check' ? 'planned' : t.stage,
+            }
+          : t,
       ),
     )
     return
@@ -72,8 +105,16 @@ export function recordCrash(input: {
   add({ ...input, source: 'terminal', count: 1, lastSeenAt: Date.now() })
 }
 
-export function setStatus(id: string, status: TaskStatus) {
-  write(read().map((t) => (t.id === id ? { ...t, status } : t)))
+export function update(id: string, patch: Partial<Task> | ((t: Task) => Partial<Task>)) {
+  let out: Task | null = null
+  write(
+    read().map((t) => {
+      if (t.id !== id) return t
+      out = normalize({ ...t, ...(typeof patch === 'function' ? patch(t) : patch) })
+      return out
+    }),
+  )
+  return out as Task | null
 }
 
 /** Delete a project's tasks and return them, for undo. */

@@ -12,6 +12,8 @@ interface Proc {
   seq: number
   startedAt: number | null
   exitCode: number | null
+  /** When the last run ended, and so whether a clean exit came after a fix. */
+  endedAt: number | null
   url: string | null
   stopping: boolean
   partial: Record<'out' | 'err', string>
@@ -63,6 +65,7 @@ function get(key: string): Proc {
       seq: 0,
       startedAt: null,
       exitCode: null,
+      endedAt: null,
       url: null,
       stopping: false,
       partial: { out: '', err: '' },
@@ -191,11 +194,13 @@ export function start(key: string, command: string, cwd: string, extraEnv: Recor
     flush(p)
     p.child = null
     p.startedAt = null
+    p.endedAt = Date.now()
     if (p.stopping) {
       p.status = 'stopped'
       push(p, 'Stopped', 'sys', 'info')
     } else if (code === 0) {
       p.status = 'stopped'
+      p.exitCode = 0
       push(p, 'Exited', 'sys', 'info')
       remember(key, false)
     } else {
@@ -235,6 +240,7 @@ export function view(key: string) {
   return {
     status: p.status,
     exitCode: p.exitCode,
+    endedAt: p.endedAt,
     url: p.url,
     startedAt: p.startedAt,
     lastSeq: p.seq,

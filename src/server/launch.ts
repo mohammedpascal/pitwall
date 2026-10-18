@@ -1,7 +1,7 @@
-import fs from 'node:fs'
 import net from 'node:net'
-import path from 'node:path'
-import { serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
+import { configuredDomain, serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
+import { hasPortFlag, withPortFlags, withoutPortless } from './ports'
+import { isExpoApp } from './expo'
 import * as pm from './processes'
 
 /**
@@ -17,18 +17,6 @@ import * as pm from './processes'
 
 // Ports handed to Expo services this session, so two starting at once don't collide.
 const given = new Map<string, number>()
-
-function isExpoApp(cwd: string) {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')) as {
-      dependencies?: Record<string, string>
-      devDependencies?: Record<string, string>
-    }
-    return 'expo' in { ...pkg.dependencies, ...pkg.devDependencies }
-  } catch {
-    return false
-  }
-}
 
 function canListen(port: number, host: string) {
   return new Promise<boolean>((resolve) => {
@@ -55,22 +43,40 @@ const isUp = (key: string) => {
   return st === 'running' || st === 'starting'
 }
 
+/** Ports Pitwall gave to services in cloud mode, which the gateway falls back on. */
+export function assignedPort(key: string) {
+  return given.get(key) ?? null
+}
+
 export async function launch(project: ProjectConfig, s: ServiceConfig) {
   const key = `${project.id}:${s.id}`
   if (isUp(key)) return
   const cwd = serviceCwd(project, s)
   const env: Record<string, string> = {}
+  const cloud = !!configuredDomain()
+  // On a cloud machine there's no portless; Pitwall routes to each service itself.
+  let command = cloud ? withoutPortless(s.command) : s.command
+  const taken = () => new Set([...given].filter(([k]) => k !== key && isUp(k)).map(([, port]) => port))
 
-  if (isExpoApp(cwd) && !/(^|\s)(--port|-p)(\s|=)/.test(s.command)) {
-    const skip = new Set([...given].filter(([k]) => k !== key && isUp(k)).map(([, port]) => port))
-    const port = await freePort(Number(process.env.RCT_METRO_PORT) || 8081, skip)
+  if (isExpoApp(cwd, command)) {
+    if (!hasPortFlag(command)) {
+      const port = await freePort(Number(process.env.RCT_METRO_PORT) || 8081, taken())
+      if (port) {
+        given.set(key, port)
+        env.RCT_METRO_PORT = String(port)
+      }
+    }
+  } else if (cloud) {
+    const port = await freePort(4100, taken())
     if (port) {
       given.set(key, port)
-      env.RCT_METRO_PORT = String(port)
+      env.PORT = String(port)
+      env.HOST = '127.0.0.1'
+      command = withPortFlags(command, cwd, port)
     }
   }
 
-  pm.start(key, s.command, cwd, env)
+  pm.start(key, command, cwd, env)
 }
 
 export async function launchAll(project: ProjectConfig) {

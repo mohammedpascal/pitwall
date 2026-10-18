@@ -1,0 +1,28 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish a release the installer can download.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      # The installer runs `npm ci --omit=dev` on the server, so native parts match its CPU.
+      - run: tar -czf pitwall.tar.gz dist server.mjs scripts package.json package-lock.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: pitwall.tar.gz
+          generate_release_notes: true

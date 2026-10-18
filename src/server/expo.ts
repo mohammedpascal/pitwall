@@ -31,6 +31,11 @@ function readDeps(cwd: string): Record<string, string> {
   }
 }
 
+/** An Expo app: its folder depends on `expo`, or its command runs `expo start`. */
+export function isExpoApp(cwd: string, command = '') {
+  return 'expo' in readDeps(cwd) || /\bexpo\s+start\b/.test(command)
+}
+
 /** This Mac's address on the local network (Wi-Fi first), like Expo's "LAN" host. */
 function lanAddress(): string | null {
   const nets = os.networkInterfaces()
