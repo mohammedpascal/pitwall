@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pitwall installer for a cloud machine (Ubuntu or Debian).
 #
-#   curl -fsSL https://raw.githubusercontent.com/__PITWALL_REPO__/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/mohammedpascal/pitwall/main/install.sh | sudo bash
 #
 # Sets up Pitwall at https://pitwall.<your dev domain>, each service at
 # https://<project>-<service>.<your dev domain>, Caddy for HTTPS, a firewall,
@@ -14,7 +14,7 @@
 #                     PITWALL_TARBALL=<url>            (install this build instead)
 set -euo pipefail
 
-REPO="${PITWALL_REPO:-__PITWALL_REPO__}"
+REPO="${PITWALL_REPO:-mohammedpascal/pitwall}"
 APP=/opt/pitwall
 DATA=/var/lib/pitwall
 USER_NAME=pitwall
@@ -34,7 +34,6 @@ ask()  { local answer; read -r -p "$1" answer </dev/tty; printf '%s' "$answer"; 
 [ "$(uname -s)" = Linux ] || die "Pitwall's installer is for Linux servers."
 command -v apt-get >/dev/null || die "This installer needs Ubuntu or Debian (apt)."
 case "$(uname -m)" in x86_64|aarch64) ;; *) die "Unsupported CPU: $(uname -m)";; esac
-[[ "$REPO" != *__PITWALL_REPO__* ]] || [ -n "${PITWALL_TARBALL:-}" ] || die "Set PITWALL_REPO=owner/repo (this copy of the installer wasn't published)."
 
 for port in 80 443; do
   if ss -ltnH "sport = :$port" 2>/dev/null | grep -q . && ! ss -ltnpH "sport = :$port" | grep -q caddy; then

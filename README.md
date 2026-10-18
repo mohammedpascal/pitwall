@@ -118,7 +118,7 @@ Pitwall can run on a cloud machine (Ubuntu or Debian, with ports 80 and 443
 free), so you can work from anywhere:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/__PITWALL_REPO__/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/mohammedpascal/pitwall/main/install.sh | sudo bash
 ```
 
 It asks for a dev domain, say `dev.example.com`, and shows the one DNS record
