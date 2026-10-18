@@ -5,7 +5,8 @@
 #
 # Sets up Pitwall at https://pitwall.<your dev domain>, each service at
 # https://<project>-<service>.<your dev domain>, Caddy for HTTPS, a firewall,
-# Node, bun and Claude Code, and prints a generated password.
+# Node, bun, pnpm/yarn, Claude Code, the GitHub CLI and build tools, and prints
+# a generated password. Then `sudo pitwall sign-in` connects Claude and GitHub.
 # Running it again updates Pitwall and keeps your domain, password and data.
 #
 # Optional settings:  PITWALL_DOMAIN=dev.example.com   (skip the question)
@@ -87,13 +88,28 @@ done
 step "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git gnupg openssl ufw unzip debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+# build-essential and python3 build native npm modules; bsdutils has `script`,
+# which gives Claude a terminal for Remote Control.
+apt-get install -y -qq ca-certificates curl git gnupg openssl ufw unzip jq build-essential python3 bsdutils \
+  debian-keyring debian-archive-keyring apt-transport-https >/dev/null
 
 node_major=$(node -v 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/' || echo 0)
 if [ "${node_major:-0}" -lt 20 ]; then
   say "Node 22"
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
   apt-get install -y -qq nodejs >/dev/null
+fi
+# pnpm and yarn, for projects that use them; fetched the first time one does.
+corepack enable
+
+if ! command -v gh >/dev/null; then
+  say "GitHub CLI"
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+  chmod a+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    >/etc/apt/sources.list.d/github-cli.list
+  apt-get update -qq
+  apt-get install -y -qq gh >/dev/null
 fi
 
 if ! command -v caddy >/dev/null; then
@@ -158,11 +174,25 @@ if [ ! -f "$DATA/.pitwall/auth.json" ]; then
   PASSWORD=$(cd "$DATA" && runuser -u "$USER_NAME" -- node "$APP/scripts/set-password.mjs")
 fi
 
-# The pitwall command: reset-password, logs, restart, status, update.
+# The pitwall command: sign-in, reset-password, logs, restart, status, update.
 cat >/usr/local/bin/pitwall <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+as_pitwall() { runuser -u $USER_NAME -- env HOME=$HOME_DIR bash -lc "\$1"; }
 case "\${1:-help}" in
+  sign-in)
+    [ "\$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
+    # Claude for tasks; GitHub for git push and pull requests. Done steps are skipped.
+    as_pitwall 'claude auth status >/dev/null 2>&1 && echo "Claude: signed in" || claude auth login'
+    as_pitwall 'gh auth status >/dev/null 2>&1 && echo "GitHub: signed in" || gh auth login --hostname github.com --git-protocol https --web'
+    as_pitwall 'gh auth setup-git'
+    # Commits need a name and email; take them from the GitHub account.
+    as_pitwall '
+      if [ -z "\$(git config --global user.name)" ]; then
+        git config --global user.name "\$(gh api user --jq ".name // .login")"
+        git config --global user.email "\$(gh api user --jq ".email // \"\\(.id)+\\(.login)@users.noreply.github.com\"")"
+        echo "Git: commits by \$(git config --global user.name) <\$(git config --global user.email)>"
+      fi' ;;
   reset-password)
     [ "\$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
     # Read on every sign-in, so no restart (which would stop your running services).
@@ -172,7 +202,7 @@ case "\${1:-help}" in
   restart) systemctl restart pitwall ;;
   status)  systemctl status pitwall --no-pager ;;
   update)  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | PITWALL_REPO=$REPO bash ;;
-  *) echo "Usage: pitwall reset-password | logs | restart | status | update" ;;
+  *) echo "Usage: pitwall sign-in | reset-password | logs | restart | status | update" ;;
 esac
 EOF
 chmod 755 /usr/local/bin/pitwall
@@ -191,6 +221,8 @@ Environment=NODE_ENV=production
 Environment=PORT=$UI_PORT
 Environment=HOST=127.0.0.1
 Environment=PITWALL_GATEWAY_PORT=$GATEWAY_PORT
+# No terminal to answer corepack's "download pnpm?" question.
+Environment=COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 Environment=PATH=$HOME_DIR/.bun/bin:$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env node $APP/server.mjs
 Restart=always
@@ -257,7 +289,7 @@ else
 fi
 say ""
 say "Next:"
-say "  1. Sign in to Claude Code for tasks:   sudo -iu $USER_NAME claude"
+say "  1. Sign in to Claude and GitHub:   sudo pitwall sign-in"
 say "  2. Put your projects in $HOME_DIR/projects (as the pitwall user):"
 say "       sudo -iu $USER_NAME git clone <repo> projects/<name>"
 say "  3. In Pitwall, open a project from that folder."

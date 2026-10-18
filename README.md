@@ -140,6 +140,11 @@ Then:
 - Previews always work there; Pitwall's preview frame is allowed even for apps
   that forbid framing, without changing the apps.
 - Only SSH, 80 and 443 are open. Dev servers listen on 127.0.0.1.
+- `sudo pitwall sign-in` signs the server in to Claude (for tasks) and GitHub
+  (for `git push` and pull requests), and sets the git name and email from
+  your GitHub account. It works over SSH: open the link it prints.
+- Installed for your projects: Node, npm, pnpm and yarn (through corepack),
+  bun, git, the GitHub CLI, and build tools for native npm modules.
 - Projects live in `/home/pitwall/projects`; Pitwall's data in `/var/lib/pitwall`.
 - `pitwall logs | restart | status | update`. Running the installer again
   updates Pitwall and keeps everything.
