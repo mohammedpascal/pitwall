@@ -6,11 +6,11 @@ import { findProject } from './config'
 import { launch } from './launch'
 import * as pm from './processes'
 import * as tasks from './tasks'
-import type { Task, TaskKind } from './types'
+import type { Task, TaskKind, TaskStart } from './types'
 
 /**
  * A task's life: understood as soon as it arrives, planned when you ask, done
- * when you say so. Each step is one Claude Code run in the project's folder;
+ * when you say so. Small ones can skip straight to doing (see start). Each step is one Claude Code run in the project's folder;
  * all of a task's runs share one conversation.
  */
 
@@ -36,6 +36,18 @@ function projectDir(task: Task) {
 const readable = (task: Task) => (task.attachments?.length ? [attachmentDir(task.id)] : [])
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/**
+ * A follow-up starts on its parent's conversation. Its first run forks it, so the
+ * parent's stays as it was; later runs continue the fork.
+ */
+function session(task: Task) {
+  const parent = task.parentId ? tasks.get(task.parentId) : null
+  return {
+    sessionId: task.sessionId,
+    fork: !!task.sessionId && task.sessionId === parent?.sessionId,
+  }
+}
 
 function describe(task: Task) {
   const files = (task.attachments ?? []).map(
@@ -64,6 +76,10 @@ const UNDERSTAND_SCHEMA = {
       description: 'false only for noise: not a real problem, already fixed, or nothing anyone could do',
     },
     kind: { type: 'string', enum: ['bug', 'change', 'question'] },
+    simple: {
+      type: 'boolean',
+      description: 'true when the change is small and obvious enough to make without a plan: a copy change, a one-line fix, a rename',
+    },
     title: { type: 'string', description: 'Short, plain, specific title, under 70 characters' },
     summary: {
       type: 'string',
@@ -72,7 +88,7 @@ const UNDERSTAND_SCHEMA = {
     duplicateOf: { type: 'string', description: 'Id of an open task this repeats, or empty' },
     reason: { type: 'string', description: 'When not actionable or a duplicate: why, in a few words' },
   },
-  required: ['actionable', 'kind', 'title', 'summary', 'duplicateOf', 'reason'],
+  required: ['actionable', 'kind', 'simple', 'title', 'summary', 'duplicateOf', 'reason'],
 }
 
 export async function understand(task: Task) {
@@ -114,11 +130,12 @@ Rewrite the title so anyone on the team understands it at a glance, and summaris
       mode: 'read',
       schema: UNDERSTAND_SCHEMA,
       addDirs: readable(task),
-      ...(followUp ? { sessionId: task.sessionId, fork: true } : {}),
+      ...session(task),
     })
     const out = r.output as {
       actionable: boolean
       kind: TaskKind
+      simple: boolean
       title: string
       summary: string
       duplicateOf: string
@@ -130,6 +147,7 @@ Rewrite the title so anyone on the team understands it at a glance, and summaris
     tasks.update(task.id, {
       sessionId: r.sessionId,
       kind: out.kind,
+      simple: out.simple,
       title: out.title.trim() || task.title,
       summary: out.summary.trim(),
       stage: closed ? 'dismissed' : 'ready',
@@ -188,7 +206,7 @@ ${PLAN_RULES}`
       taskId: task.id,
       cwd: project.path,
       prompt,
-      sessionId: task.sessionId,
+      ...session(task),
       mode: 'read',
       schema: PLAN_SCHEMA,
       addDirs: readable(task),
@@ -215,22 +233,30 @@ ${PLAN_RULES}`
 const queues = globalThis as unknown as { __pitwallEditQueue?: Map<string, Promise<void>> }
 const editQueue = (queues.__pitwallEditQueue ??= new Map())
 
-export function doIt(task: Task) {
+export function doIt(task: Task, note?: string) {
   const project = projectDir(task)
   const v = task.plans?.at(-1)?.v
-  if (!v) throw new Error('Plan it first')
+  const back = v ? 'planned' : 'ready'
   tasks.update(task.id, { stage: 'doing', error: undefined })
   agent.note(task.id, editQueue.has(project.id) ? 'Waiting for another task to finish…' : 'Working…', 'ok')
 
   const run = async () => {
-    const prompt = `The plan (version ${v}) is approved. Carry it out now in this folder, keeping to the plan.
+    const current = tasks.get(task.id) ?? task
+    const ask = note?.trim()
+    // With a plan, keep to it; without one, the task as written is the brief.
+    const brief = v
+      ? `The plan (version ${v}) is approved. Carry it out now in this folder, keeping to the plan.`
+      : `Do this task now in the project in this folder (${project.name}). Keep the change as small as the task allows.
+
+${describe(current)}${current.summary ? `\n\nYour understanding so far: ${current.summary}` : ''}`
+    const prompt = `${brief}${ask ? `\n\nGuidance from the person: ${ask}` : ''}
 Don't start or restart dev servers; Pitwall runs them. When you're done, reply with two or three sentences on what changed.`
     try {
       const r = await agent.runClaude({
         taskId: task.id,
         cwd: project.path,
         prompt,
-        sessionId: tasks.get(task.id)?.sessionId,
+        ...session(current),
         mode: 'edit',
         addDirs: readable(task),
       })
@@ -248,7 +274,7 @@ Don't start or restart dev servers; Pitwall runs them. When you're done, reply w
         await launch(project, s)
       }
     } catch (e) {
-      tasks.update(task.id, { stage: 'planned', error: `Couldn’t finish: ${message(e)}` })
+      tasks.update(task.id, { stage: back, error: `Couldn’t finish: ${message(e)}` })
       agent.note(task.id, message(e), 'err')
     }
   }
@@ -259,6 +285,17 @@ Don't start or restart dev servers; Pitwall runs them. When you're done, reply w
   void next.finally(() => {
     if (editQueue.get(project.id) === next) editQueue.delete(project.id)
   })
+}
+
+// ── Start ───────────────────────────────────────────────────────────────────
+
+/** A new task goes as far as you asked: read it, read and plan it, or do it now. */
+export async function start(task: Task, how: TaskStart) {
+  if (how === 'do') return doIt(task)
+  await understand(task)
+  const fresh = tasks.get(task.id)
+  // Closed as noise or a duplicate: nothing to plan.
+  if (how === 'plan' && fresh?.stage === 'ready') await plan(fresh)
 }
 
 // ── Closing by itself ───────────────────────────────────────────────────────
@@ -289,6 +326,9 @@ export function resumeInterrupted() {
     else if (t.stage === 'planning')
       tasks.update(t.id, { stage: t.plans?.length ? 'planned' : 'ready', error: 'Planning was interrupted' })
     else if (t.stage === 'doing')
-      tasks.update(t.id, { stage: 'planned', error: 'Interrupted while working. Check the files before trying again.' })
+      tasks.update(t.id, {
+        stage: t.plans?.length ? 'planned' : 'ready',
+        error: 'Interrupted while working. Check the files before trying again.',
+      })
   }
 }

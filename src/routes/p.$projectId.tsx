@@ -17,6 +17,7 @@ import {
   dismissTask,
   doTask,
   followUpTask,
+  remoteTask,
   getProjectState,
   getTaskDetail,
   getProjects,
@@ -190,14 +191,15 @@ function Workspace() {
     const id = task.id
     try {
       if (c.type === 'plan') await planTask({ data: { id, note: c.note } })
-      else if (c.type === 'do') await doTask({ data: { id } })
+      else if (c.type === 'do') await doTask({ data: { id, note: c.note } })
       else if (c.type === 'confirm') await confirmTask({ data: { id, ok: c.ok, note: c.note } })
       else if (c.type === 'stop') await stopTask({ data: { id } })
       else if (c.type === 'restart') await restartTask({ data: { id } })
       else if (c.type === 'reopen') await reopenTask({ data: { id } })
+      else if (c.type === 'remote') await remoteTask({ data: { id, on: c.on } })
       else if (c.type === 'follow') {
-        // Open the new task, so you see it being read.
-        const next = await followUpTask({ data: { id, title: c.note } })
+        // Open the new task, so you see it start.
+        const next = await followUpTask({ data: { id, title: c.note, how: c.how } })
         openTask(next)
       }
       else {
@@ -389,9 +391,9 @@ function Workspace() {
           projectName={state.name}
           tasks={state.tasks}
           now={now}
-          onAdd={async (title, attachments) => {
+          onAdd={async (title, attachments, how) => {
             try {
-              await addTask({ data: { projectId, title, attachments } })
+              await addTask({ data: { projectId, title, attachments, how } })
               return true
             } catch (e) {
               showToast(errorMessage(e))
@@ -404,8 +406,8 @@ function Workspace() {
           onOpen={(task) => openTask(task.id)}
           onAction={(task) => {
             openTask(task.id)
-            // Plan straight away; steering is in the task view for when you want it.
-            if (task.stage === 'ready') void taskCommand(task, { type: 'plan' })
+            // Plan straight away (or just do a simple one); steering is in the task view.
+            if (task.stage === 'ready') void taskCommand(task, task.simple ? { type: 'do' } : { type: 'plan' })
           }}
           onReopen={(task) => void taskCommand(task, { type: 'reopen' })}
         />

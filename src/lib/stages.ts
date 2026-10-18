@@ -4,7 +4,7 @@ import type { Task, TaskKind, TaskStage } from '#/server/types'
 export const STAGE: Record<TaskStage, { label: string; working?: boolean; yours?: boolean; action?: string }> = {
   new: { label: 'Reading it…', working: true },
   understanding: { label: 'Reading it…', working: true },
-  ready: { label: 'Ready to plan', yours: true, action: 'Plan' },
+  ready: { label: 'Ready', yours: true, action: 'Plan' },
   planning: { label: 'Planning…', working: true },
   planned: { label: 'Plan ready', yours: true, action: 'Review plan' },
   doing: { label: 'Working on it…', working: true },

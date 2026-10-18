@@ -129,7 +129,7 @@ function flush(p: Proc) {
   }
 }
 
-function killTree(child: ChildProcess, signal: NodeJS.Signals) {
+export function killTree(child: ChildProcess, signal: NodeJS.Signals) {
   try {
     // Services run in their own process group, so npm/portless children die too.
     if (child.pid && process.platform !== 'win32') process.kill(-child.pid, signal)

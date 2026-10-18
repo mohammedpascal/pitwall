@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AttachmentUpload, Task } from '#/server/types'
+import type { AttachmentUpload, Task, TaskStart } from '#/server/types'
 import { ago } from '#/lib/format'
 import { KIND, STAGE, byAttention, isClosed } from '#/lib/stages'
 import { PaperclipIcon, PlusIcon, sourceIcon } from './icons'
+import { MODE, ModePicker, useMode } from './ModePicker'
 
 export function TaskSidebar({
   projectName,
@@ -19,9 +20,9 @@ export function TaskSidebar({
   now: number
   selected: string | null
   /** Resolves true once the task is added. */
-  onAdd: (title: string, attachments: AttachmentUpload[]) => Promise<boolean>
+  onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart) => Promise<boolean>
   onOpen: (task: Task) => void
-  /** The card's one button: Plan, Review plan or Check it. */
+  /** The card's one button: Plan (or Do it), Review plan or Check it. */
   onAction: (task: Task) => void
   onReopen: (task: Task) => void
 }) {
@@ -106,6 +107,8 @@ function TaskCard({
   const Icon = sourceIcon[t.source]
   const count = t.count ?? 1
   const stage = STAGE[t.stage]
+  // A simple task needs no plan, so its button does it.
+  const action = t.stage === 'ready' && t.simple ? 'Do it' : stage.action
   return (
     <article
       onClick={onOpen}
@@ -143,7 +146,7 @@ function TaskCard({
           {stage.working && <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-ink-soft" />}
           {stage.label}
         </span>
-        {stage.action && (
+        {action && (
           <button
             type="button"
             onClick={(e) => {
@@ -152,7 +155,7 @@ function TaskCard({
             }}
             className="h-9 flex-none rounded-lg bg-ink px-3 text-[13px] font-medium text-white hover:bg-ink/85"
           >
-            {stage.action}
+            {action}
           </button>
         )}
       </div>
@@ -187,9 +190,10 @@ function AddTask({
   onAdd,
 }: {
   projectName: string
-  onAdd: (title: string, attachments: AttachmentUpload[]) => Promise<boolean>
+  onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
+  const [mode, setMode] = useMode('pitwall.addMode', 'read')
   const [draft, setDraft] = useState('')
   const [files, setFiles] = useState<Picked[]>([])
   const [saving, setSaving] = useState(false)
@@ -243,7 +247,7 @@ function AddTask({
     setSaving(true)
     try {
       const uploads = await Promise.all(files.map((p) => toUpload(p.file)))
-      if (await onAdd(title, uploads)) reset()
+      if (await onAdd(title, uploads, mode)) reset()
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e))
     } finally {
@@ -374,12 +378,13 @@ function AddTask({
           <button type="button" onClick={reset} className="h-9 rounded-lg px-3 text-[13px] font-medium hover:bg-line-soft">
             Cancel
           </button>
+          <ModePicker mode={mode} onPick={setMode} />
           <button
             type="submit"
             disabled={(!draft.trim() && !files.length) || saving}
             className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
           >
-            {saving ? 'Adding…' : 'Add'}
+            {saving ? 'Adding…' : MODE[mode].button}
           </button>
         </span>
       </div>

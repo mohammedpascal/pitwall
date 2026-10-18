@@ -1,21 +1,42 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 export interface MenuItem {
   label: string
   onSelect: () => void
   danger?: boolean
+  /** A line under the label, saying what it does. */
+  hint?: string
+  /** For a choice of one: whether this is the current one. */
+  checked?: boolean
 }
 
-/** A small ⋯ menu: click or Enter opens it, arrows move, Escape or a click outside closes it. */
-export function Menu({ label, items, size = 'md' }: { label: string; items: MenuItem[]; size?: 'sm' | 'md' }) {
+/**
+ * A small ⋯ menu: click or Enter opens it, arrows move, Escape or a click outside closes it.
+ * With `trigger`, it opens from a labelled button instead, like a picker.
+ */
+export function Menu({
+  label,
+  items,
+  size = 'md',
+  trigger,
+}: {
+  label: string
+  items: MenuItem[]
+  size?: 'sm' | 'md'
+  trigger?: ReactNode
+}) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
-  const trigger = useRef<HTMLButtonElement>(null)
+  const opener = useRef<HTMLButtonElement>(null)
   const list = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
-    list.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    // A picker opens on the current choice.
+    const first =
+      list.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ??
+      list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]')
+    first?.focus()
     const onDown = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false)
     }
@@ -24,12 +45,12 @@ export function Menu({ label, items, size = 'md' }: { label: string; items: Menu
   }, [open])
 
   function onKeyDown(e: React.KeyboardEvent) {
-    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]') ?? [])]
     const i = buttons.indexOf(document.activeElement as HTMLButtonElement)
     if (e.key === 'Escape') {
       e.preventDefault()
       setOpen(false)
-      trigger.current?.focus()
+      opener.current?.focus()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       buttons[(i + 1) % buttons.length]?.focus()
@@ -45,19 +66,25 @@ export function Menu({ label, items, size = 'md' }: { label: string; items: Menu
   return (
     <div ref={root} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
-        ref={trigger}
+        ref={opener}
         type="button"
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className={`flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`}
+        className={
+          trigger
+            ? `inline-flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[13px] font-medium hover:bg-line-soft ${open ? 'bg-line-soft' : ''}`
+            : `flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`
+        }
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <circle cx="5" cy="12" r="1.8" />
-          <circle cx="12" cy="12" r="1.8" />
-          <circle cx="19" cy="12" r="1.8" />
-        </svg>
+        {trigger ?? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+          </svg>
+        )}
       </button>
       {open && (
         <div
@@ -71,14 +98,24 @@ export function Menu({ label, items, size = 'md' }: { label: string; items: Menu
             <button
               key={item.label}
               type="button"
-              role="menuitem"
+              role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked={item.checked}
               onClick={() => {
                 setOpen(false)
+                if (trigger) opener.current?.focus()
                 item.onSelect()
               }}
-              className={`h-9 rounded-lg px-3 text-left text-[13px] font-medium outline-none hover:bg-line-soft focus:bg-line-soft ${item.danger ? 'text-err' : ''}`}
+              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] font-medium outline-none hover:bg-line-soft focus:bg-line-soft ${item.danger ? 'text-err' : ''}`}
             >
-              {item.label}
+              {item.checked !== undefined && (
+                <span aria-hidden="true" className="w-3 flex-none text-ink">
+                  {item.checked ? '✓' : ''}
+                </span>
+              )}
+              <span className="flex flex-col">
+                {item.label}
+                {item.hint && <span className="text-xs font-normal text-ink-soft">{item.hint}</span>}
+              </span>
             </button>
           ))}
         </div>

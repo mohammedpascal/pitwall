@@ -64,6 +64,9 @@ export type TaskStage =
 
 export type TaskKind = 'bug' | 'change' | 'question'
 
+/** How far a new task goes by itself: read it, read and plan it, or just do it. */
+export type TaskStart = 'read' | 'plan' | 'do'
+
 /** A file added to a task (a screenshot, a log, a spec). */
 export interface Attachment {
   name: string
@@ -106,6 +109,8 @@ export interface Task {
   parentId?: string
   attachments?: Attachment[]
   kind?: TaskKind
+  /** Small and obvious enough to do without a plan. */
+  simple?: boolean
   /** Claude's understanding of the task, one paragraph. */
   summary?: string
   /** The task as it arrived, before Claude rewrote the title. */
@@ -129,6 +134,8 @@ export interface TaskDetail {
   /** The HTML of the plan version asked for, or the latest. */
   plan: { v: number; html: string } | null
   working: boolean
+  /** Remote Control on this task's conversation; no link yet while it connects. */
+  remote: { url: string | null; startedAt: number } | null
   parent: { id: string; title: string } | null
   followUps: { id: string; title: string; stage: TaskStage }[]
 }

@@ -55,7 +55,10 @@ export function onNewTask(fn: (task: Task) => void) {
   hooks.__pitwallOnTask = fn
 }
 
-export function add(input: Omit<Task, 'id' | 'createdAt' | 'status' | 'stage'> & { id?: string }) {
+export function add(
+  input: Omit<Task, 'id' | 'createdAt' | 'status' | 'stage'> & { id?: string },
+  { understand = true } = {},
+) {
   const task: Task = {
     ...input,
     id: input.id ?? crypto.randomUUID(),
@@ -65,7 +68,7 @@ export function add(input: Omit<Task, 'id' | 'createdAt' | 'status' | 'stage'> &
     original: input.title,
   }
   write([task, ...read()])
-  hooks.__pitwallOnTask?.(task)
+  if (understand) hooks.__pitwallOnTask?.(task)
   return task
 }
 

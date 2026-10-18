@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import type { TaskDetail } from '#/server/types'
+import type { TaskDetail, TaskStart } from '#/server/types'
 import { ago, clock } from '#/lib/format'
 import { KIND, STAGE, isClosed } from '#/lib/stages'
 import { AlertIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
+import { MODE, ModePicker, useMode } from './ModePicker'
+import { QrCode } from './QrCode'
 
 export type TaskCommand =
   | { type: 'plan'; note?: string }
-  | { type: 'do' }
+  | { type: 'do'; note?: string }
   | { type: 'confirm'; ok: boolean; note?: string }
   | { type: 'dismiss' }
   | { type: 'done' }
   | { type: 'reopen' }
   | { type: 'stop' }
   | { type: 'restart' }
-  | { type: 'follow'; note: string }
+  | { type: 'follow'; note: string; how: TaskStart }
+  | { type: 'remote'; on: boolean }
 
 /** One task, opened in the main panel: what it is, its plan, and the next decision. */
 export function TaskView({
@@ -35,12 +38,13 @@ export function TaskView({
   onClose: () => void
   onOpenTask: (id: string) => void
 }) {
-  const { task: t, plan, log, parent, followUps } = detail
+  const { task: t, plan, log, parent, followUps, remote } = detail
   const stage = STAGE[t.stage]
   const Icon = sourceIcon[t.source]
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
+  const [followMode, setFollowMode] = useMode('pitwall.followMode', 'do')
   const plans = t.plans ?? []
   const latest = plans.at(-1)?.v ?? null
   const showing = version ?? latest
@@ -60,11 +64,18 @@ export function TaskView({
 
   const note = draft.trim()
   // The text box and buttons change with the stage; there's always one primary action.
-  const step =
-    t.stage === 'ready'
+  type Action = { label: string; run: () => Promise<void>; needsText?: boolean }
+  const planIt: Action = { label: 'Plan', run: () => send({ type: 'plan', note }) }
+  const doIt: Action = { label: 'Do it', run: () => send({ type: 'do', note }) }
+  // While you drive it remotely, Pitwall's steps wait.
+  const step = remote
+    ? null
+    : t.stage === 'ready'
       ? {
-          placeholder: 'Steer the plan (optional)…',
-          primary: { label: 'Plan', run: () => send({ type: 'plan', note }) },
+          placeholder: 'Anything to add (optional)…',
+          // A simple task needs no plan; either way, the other is a click away.
+          primary: t.simple ? doIt : planIt,
+          secondary: t.simple ? planIt : doIt,
         }
       : t.stage === 'planned'
         ? {
@@ -85,12 +96,22 @@ export function TaskView({
             ? {
                 // A new task that picks up this one's conversation.
                 placeholder: 'Follow up on this…',
-                primary: { label: 'Follow up', run: () => send({ type: 'follow', note }), needsText: true },
+                picker: <ModePicker mode={followMode} onPick={setFollowMode} />,
+                primary: {
+                  label: MODE[followMode].button,
+                  run: () => send({ type: 'follow', note, how: followMode }),
+                  needsText: true,
+                },
               }
             : null
 
   const menu = [
     ...(stage.working ? [{ label: 'Stop Claude', onSelect: () => void send({ type: 'stop' }) }] : []),
+    ...(remote
+      ? [{ label: 'Stop remote control', onSelect: () => void send({ type: 'remote', on: false }) }]
+      : t.sessionId && !stage.working
+        ? [{ label: 'Remote control', onSelect: () => void send({ type: 'remote', on: true }) }]
+        : []),
     ...(!isClosed(t) ? [{ label: 'Mark done', onSelect: () => void send({ type: 'done' }) }] : []),
     ...(!stage.working ? [{ label: 'Start over', onSelect: () => void send({ type: 'restart' }) }] : []),
     ...(!isClosed(t) ? [{ label: 'Dismiss', onSelect: () => void send({ type: 'dismiss' }), danger: true }] : []),
@@ -208,6 +229,30 @@ export function TaskView({
           </div>
         )}
 
+        {remote && (
+          <div className="flex items-center gap-4 border-b border-line px-5 py-3 text-[13px]">
+            {remote.url && <QrCode value={remote.url} size={88} label="Scan to continue on your phone" />}
+            <div className="flex min-w-0 flex-grow flex-col gap-1">
+              <span className="inline-flex items-center gap-2 font-medium">
+                <span aria-hidden="true" className={`size-2 rounded-full bg-ok ${remote.url ? '' : 'animate-pulse'}`} />
+                {remote.url ? 'Remote control' : 'Connecting…'}
+              </span>
+              {remote.url && (
+                <a href={remote.url} target="_blank" rel="noreferrer" className="self-start text-ink-soft hover:text-ink hover:underline">
+                  Open in Claude ↗
+                </a>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void send({ type: 'remote', on: false })}
+              className="h-9 flex-none rounded-lg border border-line px-3 font-medium hover:bg-line-soft"
+            >
+              Stop
+            </button>
+          </div>
+        )}
+
         {isClosed(t) && (
           <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3 text-[13px]">
             <span className="text-ink-soft">{t.closedReason ?? stage.label}</span>
@@ -294,6 +339,7 @@ export function TaskView({
               className="resize-y rounded-[10px] border border-line bg-surface px-3 py-2.5 text-sm leading-normal outline-none placeholder:text-ink-faint focus:border-ink"
             />
             <div className="flex items-center justify-end gap-1.5">
+              {'picker' in step && step.picker}
               {step.secondary && (
                 <button
                   type="button"

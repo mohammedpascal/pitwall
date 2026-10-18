@@ -24,6 +24,7 @@ import * as tasks from './tasks'
 import { STAGE } from '#/lib/stages'
 import * as attachmentStore from './attachments'
 import * as agent from './agent'
+import * as remote from './remote'
 import * as workflow from './workflow'
 import { readPlan } from './workflow'
 import type {
@@ -38,8 +39,10 @@ import type {
   ServiceConfig,
   ServiceStatus,
   ServiceView,
+  Task,
   TaskDetail,
   TaskStage,
+  TaskStart,
 } from './types'
 
 const key = (projectId: string, serviceId: string) => `${projectId}:${serviceId}`
@@ -346,7 +349,7 @@ export const restoreService = createServerFn({ method: 'POST' })
 // ── Tasks ───────────────────────────────────────────────────────────────────
 
 export const addTask = createServerFn({ method: 'POST' })
-  .validator((d: { projectId: string; title: string; attachments?: AttachmentUpload[] }) => d)
+  .validator((d: { projectId: string; title: string; attachments?: AttachmentUpload[]; how?: TaskStart }) => d)
   .handler(async ({ data }) => {
     const uploads = data.attachments ?? []
     // Files alone are enough: a screenshot often says it all.
@@ -355,20 +358,31 @@ export const addTask = createServerFn({ method: 'POST' })
     requireProject(data.projectId)
     const id = crypto.randomUUID()
     const attachments = attachmentStore.save(id, uploads)
-    return tasks.add({
-      id,
-      projectId: data.projectId,
-      title,
-      source: 'manual',
-      sourceLabel: 'You',
-      ...(attachments.length ? { attachments } : {}),
-    })
+    const task = tasks.add(
+      {
+        id,
+        projectId: data.projectId,
+        title,
+        source: 'manual',
+        sourceLabel: 'You',
+        ...(attachments.length ? { attachments } : {}),
+      },
+      { understand: false },
+    )
+    void workflow.start(task, data.how ?? 'read')
+    return task
   })
 
 function requireTask(id: string) {
   const task = tasks.get(id)
   if (!task) throw new Error('That task is gone')
   return task
+}
+
+/** One writer per conversation: Pitwall's runs wait while you drive it remotely. */
+function requireIdle(task: Task, busy = 'Claude is still working on this task') {
+  if (agent.isRunning(task.id)) throw new Error(busy)
+  if (remote.isOn(task.id)) throw new Error('Stop remote control first')
 }
 
 /** Opened in the main panel: the task, Claude's live output, and a plan. */
@@ -390,6 +404,7 @@ export const getTaskDetail = createServerFn({ method: 'GET' })
       log: agent.log(task.id),
       plan: v && html ? { v, html } : null,
       working: agent.isRunning(task.id),
+      remote: remote.get(task.id),
       parent: parent ? { id: parent.id, title: parent.title } : null,
       followUps,
     }
@@ -400,16 +415,16 @@ export const planTask = createServerFn({ method: 'POST' })
   .validator((d: { id: string; note?: string }) => d)
   .handler(async ({ data }) => {
     const task = requireTask(data.id)
-    if (agent.isRunning(task.id)) throw new Error('Claude is still working on this task')
+    requireIdle(task)
     void workflow.plan(task, data.note)
   })
 
 export const doTask = createServerFn({ method: 'POST' })
-  .validator((d: { id: string }) => d)
+  .validator((d: { id: string; note?: string }) => d)
   .handler(async ({ data }) => {
     const task = requireTask(data.id)
-    if (agent.isRunning(task.id)) throw new Error('Claude is still working on this task')
-    workflow.doIt(task)
+    requireIdle(task)
+    workflow.doIt(task, data.note)
   })
 
 /** After the work: it's right (done), or it isn't and the plan is revised. */
@@ -421,24 +436,29 @@ export const confirmTask = createServerFn({ method: 'POST' })
       tasks.update(task.id, { stage: 'done', closedReason: undefined })
       return
     }
+    requireIdle(task)
     void workflow.plan(task, `It was done, but it isn't right yet: ${data.note?.trim() || 'look again'}`)
   })
 
 /** A new task that starts from a copy of this one's conversation. */
 export const followUpTask = createServerFn({ method: 'POST' })
-  .validator((d: { id: string; title: string }) => d)
+  .validator((d: { id: string; title: string; how?: TaskStart }) => d)
   .handler(async ({ data }) => {
     const parent = requireTask(data.id)
     const title = data.title.trim()
     if (!title) throw new Error('Say what to follow up with')
-    const task = tasks.add({
-      projectId: parent.projectId,
-      title,
-      source: 'manual',
-      sourceLabel: 'Follow-up',
-      parentId: parent.id,
-      ...(parent.sessionId ? { sessionId: parent.sessionId } : {}),
-    })
+    const task = tasks.add(
+      {
+        projectId: parent.projectId,
+        title,
+        source: 'manual',
+        sourceLabel: 'Follow-up',
+        parentId: parent.id,
+        ...(parent.sessionId ? { sessionId: parent.sessionId } : {}),
+      },
+      { understand: false },
+    )
+    void workflow.start(task, data.how ?? 'do')
     return task.id
   })
 
@@ -448,6 +468,7 @@ export const dismissTask = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const task = requireTask(data.id)
     agent.stop(task.id)
+    remote.stop(task.id)
     tasks.update(task.id, data.done ? { stage: 'done', closedReason: undefined } : { stage: 'dismissed', closedReason: 'Dismissed' })
     return task.stage
   })
@@ -461,6 +482,20 @@ export const reopenTask = createServerFn({ method: 'POST' })
     tasks.update(task.id, { stage, closedReason: undefined })
   })
 
+/** Drive the task's conversation from claude.ai or the Claude app; resolves with the link. */
+export const remoteTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; on: boolean }) => d)
+  .handler(async ({ data }) => {
+    if (!data.on) {
+      remote.stop(data.id)
+      return null
+    }
+    const task = requireTask(data.id)
+    const project = findProject(task.projectId)
+    if (!project) throw new Error('This task’s project is gone')
+    return remote.start(task, project.path)
+  })
+
 export const stopTask = createServerFn({ method: 'POST' })
   .validator((d: { id: string }) => d)
   .handler(async ({ data }) => {
@@ -472,7 +507,7 @@ export const restartTask = createServerFn({ method: 'POST' })
   .validator((d: { id: string }) => d)
   .handler(async ({ data }) => {
     const task = requireTask(data.id)
-    if (agent.isRunning(task.id)) throw new Error('Stop Claude first')
+    requireIdle(task, 'Stop Claude first')
     // A follow-up starts again from its parent's conversation; anything else from nothing.
     const parent = task.parentId ? tasks.get(task.parentId) : null
     const fresh = tasks.update(task.id, {
@@ -481,6 +516,7 @@ export const restartTask = createServerFn({ method: 'POST' })
       sessionId: parent?.sessionId,
       summary: undefined,
       kind: undefined,
+      simple: undefined,
       plans: undefined,
       error: undefined,
       closedReason: undefined,

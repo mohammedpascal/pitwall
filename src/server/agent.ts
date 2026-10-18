@@ -71,6 +71,16 @@ function describeTool(name: string, input: Record<string, unknown>, cwd: string)
 
 export class AgentError extends Error {}
 
+/** Pitwall may itself run inside a Claude Code session; a `claude` it starts is its own. */
+export function childEnv() {
+  const env = { ...process.env }
+  for (const k of Object.keys(env)) {
+    if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_') || k === 'PORT' || k === 'HOST' || k.startsWith('PORTLESS_'))
+      delete env[k]
+  }
+  return env
+}
+
 export async function runClaude(opts: {
   taskId: string
   cwd: string
@@ -101,12 +111,7 @@ export async function runClaude(opts: {
   if (opts.schema) args.push('--json-schema', JSON.stringify(opts.schema))
   for (const d of opts.addDirs ?? []) args.push('--add-dir', d)
 
-  // Pitwall may itself run inside a Claude Code session; the child is its own.
-  const env = { ...process.env }
-  for (const k of Object.keys(env)) {
-    if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_') || k === 'PORT' || k === 'HOST' || k.startsWith('PORTLESS_'))
-      delete env[k]
-  }
+  const env = childEnv()
 
   return new Promise((resolve, reject) => {
     let child: ChildProcess
