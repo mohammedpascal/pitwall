@@ -303,6 +303,9 @@ if [ -n "$PASSWORD" ]; then
 else
   say "  Password  unchanged ${dim}(new one: sudo pitwall reset-password)${reset}"
 fi
+say "  Pitwall   $APP"
+say "  Projects  $PROJECTS"
+say "  Data      $DATA"
 say ""
 say "Next:"
 say "  1. Sign in to Claude and GitHub:   sudo pitwall sign-in"
