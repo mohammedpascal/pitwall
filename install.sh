@@ -28,6 +28,8 @@ bold=$'\e[1m'; dim=$'\e[2m'; red=$'\e[31m'; green=$'\e[32m'; reset=$'\e[0m'
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n%s▸ %s%s\n' "$bold" "$*" "$reset"; }
 die()  { printf '%sError:%s %s\n' "$red" "$reset" "$*" >&2; exit 1; }
+# Never stop silently: say which step failed.
+trap 'die "Stopped at line $LINENO: $BASH_COMMAND"' ERR
 
 # ── Checks ──────────────────────────────────────────────────────────────────
 [ "$(id -u)" -eq 0 ] || die "Run as root: curl -fsSL … | sudo bash"
@@ -95,7 +97,8 @@ if ! id "$USER_NAME" >/dev/null 2>&1; then
   useradd --create-home --home-dir "$HOME_DIR" --shell /bin/bash "$USER_NAME"
 fi
 # The projects folder: given, or the one from the last install, or the default.
-existing_projects=$(sed -n 's/^Environment=PITWALL_PROJECTS=//p' /etc/systemd/system/pitwall.service 2>/dev/null | head -1)
+# (No service file on a fresh machine: that's fine, not an error.)
+existing_projects=$(sed -n 's/^Environment=PITWALL_PROJECTS=//p' /etc/systemd/system/pitwall.service 2>/dev/null | head -1 || true)
 PROJECTS="${PITWALL_PROJECTS:-${existing_projects:-$HOME_DIR/projects}}"
 PROJECTS="${PROJECTS%/}"
 [[ "$PROJECTS" = /* ]] || die "PITWALL_PROJECTS must be a full path, like /srv/code."
@@ -105,7 +108,7 @@ as_pitwall() { runuser -u "$USER_NAME" -- env HOME="$HOME_DIR" bash -lc "$1"; }
 
 if [ ! -x "$HOME_DIR/.bun/bin/bun" ]; then
   say "bun"
-  as_pitwall 'curl -fsSL https://bun.sh/install | bash' >/dev/null
+  as_pitwall 'curl -fsSL https://bun.sh/install | bash' >/dev/null 2>&1
 fi
 if [ ! -x "$HOME_DIR/.local/bin/claude" ]; then
   say "Claude Code"
