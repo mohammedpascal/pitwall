@@ -186,7 +186,9 @@ if [ ! -f "$DATA/.pitwall/auth.json" ]; then
 fi
 
 # The pitwall command: sign-in, reset-password, logs, restart, status, update, uninstall.
-cat >/usr/local/bin/pitwall <<EOF
+# Written beside it and moved into place: a running `pitwall update` is still
+# reading the old file, and bash would choke on new text at its old position.
+cat >/usr/local/bin/pitwall.new <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 as_pitwall() { runuser -u $USER_NAME -- env HOME=$HOME_DIR bash -lc "\$1"; }
@@ -217,7 +219,7 @@ case "\${1:-help}" in
     echo "Data      $DATA"
     echo
     systemctl status pitwall --no-pager ;;
-  update)  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | PITWALL_REPO=$REPO bash ;;
+  update)  exec bash -c 'curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | PITWALL_REPO=$REPO bash' ;;
   uninstall)
     [ "\$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
     ask() { local a; read -r -p "\$1 [y/N] " a </dev/tty; [[ "\$a" =~ ^[Yy] ]]; }
@@ -255,7 +257,8 @@ case "\${1:-help}" in
   *) echo "Usage: pitwall sign-in | reset-password | logs | restart | status | update | uninstall" ;;
 esac
 EOF
-chmod 755 /usr/local/bin/pitwall
+chmod 755 /usr/local/bin/pitwall.new
+mv -f /usr/local/bin/pitwall.new /usr/local/bin/pitwall
 
 # ── Service ─────────────────────────────────────────────────────────────────
 cat >/etc/systemd/system/pitwall.service <<EOF
