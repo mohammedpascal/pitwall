@@ -233,6 +233,9 @@ ${PLAN_RULES}`
 const queues = globalThis as unknown as { __pitwallEditQueue?: Map<string, Promise<void>> }
 const editQueue = (queues.__pitwallEditQueue ??= new Map())
 
+/** Claude is changing this project (or about to): not a moment to commit it. */
+export const editing = (projectId: string) => editQueue.has(projectId)
+
 export function doIt(task: Task, note?: string) {
   const project = projectDir(task)
   const v = task.plans?.at(-1)?.v

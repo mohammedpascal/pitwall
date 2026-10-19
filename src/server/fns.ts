@@ -36,6 +36,7 @@ import * as attachmentStore from './attachments'
 import * as agent from './agent'
 import * as remote from './remote'
 import * as signin from './signin'
+import * as git from './git'
 import * as workflow from './workflow'
 import { readPlan } from './workflow'
 import type {
@@ -312,6 +313,7 @@ export const getProjectState = createServerFn({ method: 'GET' })
       name: project.name,
       cloud: isCloud(),
       path: displayPath(project.path),
+      git: await gitStatusFor(project.path),
       services,
       logService,
       logs: logService ? pm.logs(key(project.id, logService)) : [],
@@ -323,6 +325,49 @@ export const getProjectState = createServerFn({ method: 'GET' })
 export const listFolders = createServerFn({ method: 'GET' })
   .validator((d: { input: string }) => d)
   .handler(async ({ data }) => suggestFolders(data.input))
+
+/** Where the branch stands; also checks GitHub now and then, in the background. */
+async function gitStatusFor(dir: string): Promise<ProjectState['git']> {
+  const s = await git.status(dir)
+  if (!s) return null
+  git.fetchSoon(dir)
+  return { branch: s.branch, ahead: s.ahead, behind: s.behind, changed: s.changed, upstream: !!s.upstream }
+}
+
+/** Commit what changed (named after the tasks you finished), pull, push: when you ask, never by itself. */
+export const syncProject = createServerFn({ method: 'POST' })
+  .validator((d: { projectId: string }) => d)
+  .handler(async ({ data }): Promise<{ pushed: number; pulled: number; newBranch: boolean } | { conflict: string[] }> => {
+    const project = requireProject(data.projectId)
+    const list = tasks.list(project.id)
+    if (workflow.editing(project.id) || list.some((t) => t.stage === 'doing')) {
+      throw new Error('Claude is still working here. Sync once it’s done.')
+    }
+    const finished = list.filter((t) => (t.stage === 'check' || t.stage === 'done') && t.changedFiles?.length && !t.syncedAt)
+    const message =
+      finished.length === 1
+        ? finished[0].title
+        : finished.length
+          ? `${finished.length} changes from Pitwall\n\n${finished.map((t) => `- ${t.title}`).join('\n')}`
+          : 'Changes from Pitwall'
+    try {
+      const r = await git.sync(project.path, message)
+      for (const t of finished) tasks.update(t.id, { syncedAt: Date.now() })
+      return r
+    } catch (e) {
+      if (!(e instanceof git.SyncConflict)) throw e
+      const branch = (await git.status(project.path))?.branch ?? 'your branch'
+      // Claude can untangle it; you decide when.
+      tasks.add({
+        projectId: project.id,
+        title: `Merge GitHub's changes into ${branch}`,
+        detail: `Sync stopped: GitHub has changes to the same lines as the commit here, in:\n${e.files.map((f) => `- ${f}`).join('\n')}\n\nPull from GitHub with rebase, resolve the conflicts keeping both sides' intent, and finish the rebase. Don't push; the person will press Sync.`,
+        source: 'manual',
+        sourceLabel: 'Sync',
+      })
+      return { conflict: e.files }
+    }
+  })
 
 const suggestionKey = (s: { cwd?: string; command: string }) => `${s.cwd || '.'}|${s.command}`
 

@@ -105,6 +105,12 @@ Reading and planning never change the project. Plans are kept in
 - The project's **⋯** menu: Rename, Change folder, Remove project.
 - Removing anything shows an **Undo** for a few seconds instead of asking first.
 - Services you leave running start again the next time Pitwall starts.
+- A project from git shows its branch under its name, and what there is to
+  sync: "2 changed files · 3 new on GitHub". One button does it, labelled
+  **Push**, **Pull** or **Sync**: it commits your changes (named after the
+  tasks you finished), pulls with rebase and pushes. Nothing is pushed or
+  pulled until you press it. If GitHub changed the same lines, nothing is
+  lost: the rebase is undone and a "Merge GitHub's changes" task appears.
 
 Everything is stored in `pitwall.config.json` and `.pitwall/` (both
 git-ignored). You can edit the config by hand too:

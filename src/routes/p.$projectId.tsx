@@ -36,10 +36,11 @@ import {
   stopAll,
   stopService,
   stopTask,
+  syncProject,
   updateProjectInfo,
   updateService,
 } from '#/server/fns'
-import type { DetectedService, Task, TaskDetail } from '#/server/types'
+import type { DetectedService, ProjectState, Task, TaskDetail } from '#/server/types'
 
 const POLL_MS = 1000
 
@@ -271,6 +272,18 @@ function Workspace() {
               ) : (
                 <div className="truncate font-mono text-xs text-ink-soft">{state.path}</div>
               )}
+              {state.git && (
+                <GitLine
+                  git={state.git}
+                  busy={!!busy.__sync}
+                  onSync={() =>
+                    void run('__sync', async () => {
+                      const r = await syncProject({ data: { projectId } })
+                      showToast(syncResult(r))
+                    })
+                  }
+                />
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               <Menu
@@ -421,6 +434,57 @@ function Workspace() {
           onReopen={(task) => void taskCommand(task, { type: 'reopen' })}
         />
       </div>
+    </div>
+  )
+}
+
+type Git = NonNullable<ProjectState['git']>
+type SyncResult = { pushed: number; pulled: number; newBranch: boolean } | { conflict: string[] }
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+function syncResult(r: SyncResult) {
+  if ('conflict' in r) return `GitHub changed the same lines in ${r.conflict.join(', ')}. Nothing was lost; there's a task to merge them.`
+  const parts = [
+    r.newBranch ? 'Pushed the branch to GitHub' : r.pushed ? `Pushed ${plural(r.pushed, 'commit')}` : '',
+    r.pulled ? `pulled ${plural(r.pulled, 'commit')}` : '',
+  ].filter(Boolean)
+  return parts.length ? `${parts.join(' and ')}.`.replace(/^p/, 'P') : 'Already up to date.'
+}
+
+/** The branch, what there is to sync, and the one button that does it (Push, Pull or Sync). */
+function GitLine({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () => void }) {
+  const local = git.changed > 0 || git.ahead > 0 || !git.upstream
+  const label = local && git.behind ? 'Sync' : local ? 'Push' : git.behind ? 'Pull' : null
+  const facts = [
+    git.changed ? plural(git.changed, 'changed file') : '',
+    git.ahead ? `${git.ahead} to push` : '',
+    !git.upstream && git.branch ? 'not on GitHub yet' : '',
+    git.behind ? `${git.behind} new on GitHub` : '',
+  ].filter(Boolean)
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
+      <span className="inline-flex items-center gap-1 font-mono">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="6" cy="18" r="2.5" />
+          <circle cx="18" cy="8" r="2.5" />
+          <path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5" />
+        </svg>
+        {git.branch ?? 'no branch'}
+      </span>
+      <span aria-hidden="true">·</span>
+      <span>{facts.length ? facts.join(' · ') : 'Up to date'}</span>
+      {label && git.branch && (
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={busy}
+          className="ml-1 h-7 rounded-lg border border-line bg-surface px-2.5 font-medium text-ink hover:bg-line-soft disabled:opacity-50"
+        >
+          {busy ? `${label === 'Pull' ? 'Pulling' : label === 'Push' ? 'Pushing' : 'Syncing'}…` : label}
+        </button>
+      )}
     </div>
   )
 }

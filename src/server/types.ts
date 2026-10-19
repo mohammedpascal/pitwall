@@ -136,6 +136,8 @@ export interface Task {
   error?: string
   /** Not stored: what Claude is asking permission for right now. */
   asking?: Asking
+  /** When Sync committed this task's changes. */
+  syncedAt?: number
 }
 
 /** A task opened in the main panel. */
@@ -166,6 +168,8 @@ export interface ProjectState {
   /** Running on a cloud machine, behind a login. */
   cloud: boolean
   path: string
+  /** For a git repo with a remote: the branch and what there is to sync. */
+  git: { branch: string | null; upstream: boolean; ahead: number; behind: number; changed: number } | null
   services: ServiceView[]
   logService: string | null
   logs: LogLine[]
