@@ -153,7 +153,10 @@ Then:
   (`curl … | sudo PITWALL_PROJECTS=/srv/code bash`); running the installer
   again keeps it. Locally, set `PITWALL_PROJECTS` before `npm run dev`.
 - `pitwall logs | restart | status | update`; `status` also shows where
-  Pitwall, your projects and its data are. Running the installer again
+  Pitwall, your projects and its data are.
+- `sudo pitwall uninstall` removes Pitwall, and asks before deleting the
+  `pitwall` user with your projects and sign-ins. Node, Caddy and the other
+  tools stay. Running the installer again
   updates Pitwall and keeps everything.
 
 Expo apps run there too, but phones can't reach them through the login yet.

@@ -185,7 +185,7 @@ if [ ! -f "$DATA/.pitwall/auth.json" ]; then
   PASSWORD=$(cd "$DATA" && runuser -u "$USER_NAME" -- node "$APP/scripts/set-password.mjs")
 fi
 
-# The pitwall command: sign-in, reset-password, logs, restart, status, update.
+# The pitwall command: sign-in, reset-password, logs, restart, status, update, uninstall.
 cat >/usr/local/bin/pitwall <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -218,7 +218,41 @@ case "\${1:-help}" in
     echo
     systemctl status pitwall --no-pager ;;
   update)  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | PITWALL_REPO=$REPO bash ;;
-  *) echo "Usage: pitwall sign-in | reset-password | logs | restart | status | update" ;;
+  uninstall)
+    [ "\$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
+    ask() { local a; read -r -p "\$1 [y/N] " a </dev/tty; [[ "\$a" =~ ^[Yy] ]]; }
+    ask "Remove Pitwall (its app, settings, tasks and password)?" || exit 0
+    # Also asked now, so nothing is half done if you say no.
+    remove_user=""
+    if id $USER_NAME >/dev/null 2>&1; then
+      echo
+      echo "The $USER_NAME user holds your projects and the Claude and GitHub sign-ins."
+      [ -d "$PROJECTS" ] && ls -1 "$PROJECTS" | sed 's/^/  /'
+      if ask "Also delete the $USER_NAME user, $HOME_DIR and everything in $PROJECTS?"; then remove_user=1; fi
+    fi
+    # Stopping the service ends everything it started: your services and Claude too.
+    systemctl disable --now pitwall >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/pitwall.service
+    systemctl daemon-reload
+    rm -rf $APP $DATA
+    # Caddy goes back to what it had before Pitwall, or to serving nothing.
+    if [ -f /etc/caddy/Caddyfile.before-pitwall ]; then
+      mv /etc/caddy/Caddyfile.before-pitwall /etc/caddy/Caddyfile
+    else
+      echo "# Pitwall was uninstalled." >/etc/caddy/Caddyfile
+    fi
+    systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
+    if [ -n "\$remove_user" ]; then
+      pkill -KILL -u $USER_NAME 2>/dev/null || true
+      userdel -r $USER_NAME 2>/dev/null || true
+      rm -rf "$PROJECTS"
+      echo "Removed Pitwall and the $USER_NAME user."
+    else
+      echo "Removed Pitwall. Kept the $USER_NAME user, $PROJECTS and its sign-ins."
+    fi
+    echo "Node, Caddy, git, the GitHub CLI and the firewall rules stay installed."
+    rm -f /usr/local/bin/pitwall ;;
+  *) echo "Usage: pitwall sign-in | reset-password | logs | restart | status | update | uninstall" ;;
 esac
 EOF
 chmod 755 /usr/local/bin/pitwall
