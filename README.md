@@ -140,16 +140,20 @@ Then:
 - Previews always work there; Pitwall's preview frame is allowed even for apps
   that forbid framing, without changing the apps.
 - Only SSH, 80 and 443 are open. Dev servers listen on 127.0.0.1.
-- `sudo pitwall sign-in` signs the server in to Claude (for tasks) and GitHub
-  (for `git push` and pull requests), and sets the git name and email from
-  your GitHub account. It works over SSH: open the link it prints.
+- The first time you open it, Pitwall asks you to sign the server in to
+  Claude (for tasks) and GitHub (for cloning, `git push` and pull requests),
+  right on the page, and sets the git name and email from your GitHub account.
+  (`sudo pitwall sign-in` does the same over SSH.)
+- Paste a GitHub URL (or `owner/repo`) where you'd type a folder: Pitwall
+  clones it into the projects folder and opens it.
 - Installed for your projects: Node, npm, pnpm and yarn (through corepack),
   bun, git, the GitHub CLI, and build tools for native npm modules.
 - Projects live in `/home/pitwall/projects`; Pitwall's data in `/var/lib/pitwall`.
   For another projects folder, install with `PITWALL_PROJECTS=/srv/code`
   (`curl … | sudo PITWALL_PROJECTS=/srv/code bash`); running the installer
   again keeps it. Locally, set `PITWALL_PROJECTS` before `npm run dev`.
-- `pitwall logs | restart | status | update`. Running the installer again
+- `pitwall logs | restart | status | update`; `status` also shows where
+  Pitwall, your projects and its data are. Running the installer again
   updates Pitwall and keeps everything.
 
 Expo apps run there too, but phones can't reach them through the login yet.

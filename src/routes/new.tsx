@@ -2,11 +2,15 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ErrorNote, FolderInput, PageHeader } from '#/components/ui'
 import { errorMessage } from '#/lib/errors'
-import { createProject, getProjects, getProjectsHome, openProject } from '#/server/fns'
+import { Connect } from '#/components/Connect'
+import { createProject, getProjects, getProjectsHome, getSignIn, openProject } from '#/server/fns'
 import type { OpenResult } from '#/server/types'
 
 export const Route = createFileRoute('/new')({
-  loader: async () => ({ projects: await getProjects(), home: await getProjectsHome() }),
+  loader: async () => {
+    const [projects, home, signIn] = await Promise.all([getProjects(), getProjectsHome(), getSignIn()])
+    return { projects, home, signIn }
+  },
   head: () => ({ meta: [{ title: 'Open a project · Pitwall' }] }),
   component: OpenProject,
 })
@@ -14,7 +18,7 @@ export const Route = createFileRoute('/new')({
 type Empty = Extract<OpenResult, { status: 'empty' }>
 
 function OpenProject() {
-  const { projects, home } = Route.useLoaderData()
+  const { projects, home, signIn } = Route.useLoaderData()
   const navigate = useNavigate()
   const [folder, setFolder] = useState<string>(home)
   const [busy, setBusy] = useState(false)
@@ -58,12 +62,14 @@ function OpenProject() {
       <PageHeader back={projects.length > 0} />
 
       <main className="mx-auto flex w-full max-w-[620px] flex-col gap-6 px-6 pt-24 pb-16 max-sm:pt-12">
+        <Connect initial={signIn} />
+
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-[-0.015em]">
             {projects.length ? 'Open a project' : 'Open your first project'}
           </h1>
           <p className="text-[15px] leading-relaxed text-ink-soft">
-            Pick its folder. Pitwall finds the apps inside and starts them.
+            Pick its folder, or paste a GitHub URL to clone. Pitwall finds the apps inside and starts them.
           </p>
         </div>
 
@@ -93,7 +99,7 @@ function OpenProject() {
             disabled={!folder.trim() || busy}
             className="h-11 flex-none rounded-[10px] bg-ink px-5 font-semibold text-white hover:bg-ink/85 disabled:opacity-50"
           >
-            {busy && !empty ? 'Opening…' : 'Open'}
+            {busy && !empty ? (/^(https?:\/\/|git@)/.test(folder.trim()) ? 'Cloning…' : 'Opening…') : 'Open'}
           </button>
         </form>
 

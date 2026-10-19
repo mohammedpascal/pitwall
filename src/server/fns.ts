@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
+import { execFile } from 'node:child_process'
 import path from 'node:path'
 import { createServerFn } from '@tanstack/react-start'
 import {
@@ -26,6 +26,7 @@ import { STAGE } from '#/lib/stages'
 import * as attachmentStore from './attachments'
 import * as agent from './agent'
 import * as remote from './remote'
+import * as signin from './signin'
 import * as workflow from './workflow'
 import { readPlan } from './workflow'
 import type {
@@ -63,6 +64,36 @@ function requireFolder(input: string) {
   return dir
 }
 
+/** A repository to clone: an https or ssh git URL, or GitHub's owner/repo. */
+function gitUrl(input: string): string | null {
+  const s = input.trim()
+  if (/^(https?:\/\/|git@|ssh:\/\/)\S+\/[^/\s]+$/.test(s)) return s
+  if (/^[\w.-]+\/[\w.-]+$/.test(s) && !fs.existsSync(expand(s))) return `https://github.com/${s.replace(/\.git$/, '')}.git`
+  return null
+}
+
+/** Clones it into the projects folder, or finds the copy already there. */
+function cloneInto(url: string): Promise<string> {
+  const name = path.basename(url.replace(/\/+$/, '')).replace(/\.git$/, '')
+  const dir = path.join(projectsHome(), name)
+  if (fs.existsSync(path.join(dir, '.git'))) return Promise.resolve(dir)
+  if (fs.existsSync(dir)) throw new Error(`${displayPath(dir)} already exists and isn’t that repository`)
+  fs.mkdirSync(projectsHome(), { recursive: true })
+  return new Promise((resolve, reject) => {
+    // No terminal to ask for a password: fail fast and say so instead.
+    const env = { ...agent.childEnv(), GIT_TERMINAL_PROMPT: '0' }
+    execFile('git', ['clone', url, dir], { env, timeout: 10 * 60_000 }, (err, _out, stderr) => {
+      if (!err) return resolve(dir)
+      // GitHub answers a private repo the same as a missing one.
+      if (/could not read Username|Authentication failed|Repository not found|Permission denied/i.test(stderr)) {
+        return reject(new Error(`Couldn’t clone ${url}: it doesn’t exist, or it’s private and GitHub isn’t signed in here`))
+      }
+      const last = stderr.split('\n').map((l) => l.trim()).filter(Boolean).at(-1)
+      reject(new Error(`Couldn’t clone ${url}${last ? `: ${last.replace(/^fatal: /, '')}` : ''}`))
+    })
+  })
+}
+
 function uniqueServiceId(taken: Iterable<string>, base: string) {
   const ids = new Set(taken)
   const root = slug(base)
@@ -79,15 +110,33 @@ function toConfig(s: { id: string; name: string; command: string; cwd: string })
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-/** Where the folder box starts: the installer's projects folder on a cloud machine. */
-/** Where the folder box starts. PITWALL_PROJECTS overrides it; ~ stays ~ so the box reads short. */
+/** Where projects go: PITWALL_PROJECTS, else ~/projects on a cloud machine and ~/src here. */
+function projectsHome() {
+  return expand(process.env.PITWALL_PROJECTS?.trim() || (cloudDomain() ? '~/projects' : '~/src'))
+}
+
+/** Where the folder box starts; ~ stays ~ so it reads short. */
 export const getProjectsHome = createServerFn({ method: 'GET' }).handler(async () => {
-  const set = process.env.PITWALL_PROJECTS?.trim()
-  if (!set) return cloudDomain() ? '~/projects/' : '~/src/'
-  const home = os.homedir()
-  const short = set === home || set.startsWith(home + '/') ? '~' + set.slice(home.length) : set
+  const short = displayPath(projectsHome())
   return short.endsWith('/') ? short : short + '/'
 })
+
+/** Only on a cloud machine: here you have your own terminal, and Claude and gh are yours already. */
+export const getSignIn = createServerFn({ method: 'GET' }).handler(() => (cloudDomain() ? signin.status() : null))
+
+/** Claude returns the page to open; GitHub, the code to enter there. */
+export const startSignIn = createServerFn({ method: 'POST' })
+  .validator((d: { to: signin.Provider }) => d)
+  .handler(async ({ data }) =>
+    data.to === 'claude' ? { url: await signin.startClaude(), code: null } : { url: null, code: await signin.startGithub() },
+  )
+
+export const finishClaudeSignIn = createServerFn({ method: 'POST' })
+  .validator((d: { code: string }) => d)
+  .handler(async ({ data }) => {
+    if (!data.code.trim()) throw new Error('Paste the code from the Claude page')
+    await signin.finishClaude(data.code)
+  })
 
 export const getProjects = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectSummary[]> => {
@@ -220,7 +269,8 @@ export const stopAll = createServerFn({ method: 'POST' })
 export const openProject = createServerFn({ method: 'POST' })
   .validator((d: { path: string }) => d)
   .handler(async ({ data }): Promise<OpenResult> => {
-    const dir = requireFolder(data.path)
+    const repo = gitUrl(data.path)
+    const dir = repo ? await cloneInto(repo) : requireFolder(data.path)
     const existing = loadConfig().find((p) => p.path === dir)
     if (existing) return { status: 'opened', id: existing.id, existing: true }
 

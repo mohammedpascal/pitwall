@@ -211,7 +211,12 @@ case "\${1:-help}" in
     echo "New password (everyone is signed out): \$pw" ;;
   logs)    journalctl -u pitwall -f -n 100 ;;
   restart) systemctl restart pitwall ;;
-  status)  systemctl status pitwall --no-pager ;;
+  status)
+    echo "Pitwall   $APP"
+    echo "Projects  $PROJECTS"
+    echo "Data      $DATA"
+    echo
+    systemctl status pitwall --no-pager ;;
   update)  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | PITWALL_REPO=$REPO bash ;;
   *) echo "Usage: pitwall sign-in | reset-password | logs | restart | status | update" ;;
 esac
@@ -303,14 +308,7 @@ if [ -n "$PASSWORD" ]; then
 else
   say "  Password  unchanged ${dim}(new one: sudo pitwall reset-password)${reset}"
 fi
-say "  Pitwall   $APP"
-say "  Projects  $PROJECTS"
-say "  Data      $DATA"
 say ""
-say "Next:"
-say "  1. Sign in to Claude and GitHub:   sudo pitwall sign-in"
-say "  2. Put your projects in $PROJECTS (as the pitwall user):"
-say "       sudo -iu $USER_NAME git clone <repo> $PROJECTS/<name>"
-say "  3. In Pitwall, open a project from that folder."
+say "Sign in there; Pitwall walks you through the rest."
 say ""
 say "${dim}The first visit to each address takes a few seconds while its certificate is issued.${reset}"
