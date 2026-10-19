@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { errorMessage } from '#/lib/errors'
-import { checkDomain, finishClaudeSignIn, getSetup, startSignIn, switchDomain } from '#/server/fns'
+import { checkDomain, finishClaudeSignIn, getSetup, setLoginPassword, startSignIn, switchDomain } from '#/server/fns'
 import { ErrorNote } from './ui'
 
 export type SetupState = NonNullable<Awaited<ReturnType<typeof getSetup>>>
@@ -153,6 +153,8 @@ export function Setup({ initial }: { initial: SetupState }) {
       {(error ?? claude.error ?? github.error) && <ErrorNote text={(error ?? claude.error ?? github.error)!} />}
 
       <DomainRow domain={state.domain} next={claude.ok && github.ok} />
+
+      <PasswordRow set={state.password} onSaved={() => void refresh()} />
     </section>
   )
 }
@@ -160,6 +162,92 @@ export function Setup({ initial }: { initial: SetupState }) {
 type Check = Awaited<ReturnType<typeof checkDomain>>
 
 /** Type a domain, add the one DNS record it shows, then move Pitwall there once it points here. */
+/** Optional: a password signs you in from other devices, where you don't have the link. */
+function PasswordRow({ set, onSaved }: { set: boolean; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [shown, setShown] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setBusy(true)
+    setError(null)
+    try {
+      await setLoginPassword({ data: { password: value } })
+      setValue('')
+      setEditing(false)
+      onSaved()
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+    setBusy(false)
+  }
+
+  const why = 'To sign in from other devices'
+  if (set && !editing) {
+    return (
+      <Row
+        name="Password"
+        why={why}
+        ok
+        who="Set"
+        action={
+          <button type="button" onClick={() => setEditing(true)} className="text-[13px] font-medium text-ink-soft hover:text-ink hover:underline">
+            Change
+          </button>
+        }
+      >
+        {null}
+      </Row>
+    )
+  }
+  return (
+    <Row name="Password" why={why} ok={false} who={null}>
+      {editing ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save()
+          }}
+          className="flex w-full flex-col gap-2"
+        >
+          <div className="flex gap-2">
+            <label htmlFor="login-password" className="sr-only">
+              New password
+            </label>
+            <input
+              id="login-password"
+              type={shown ? 'text' : 'password'}
+              autoFocus
+              autoComplete="new-password"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="At least 12 characters"
+              className="h-9 min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 font-mono text-[13px] outline-none focus:border-ink"
+            />
+            <button
+              type="button"
+              onClick={() => setShown((v) => !v)}
+              className="h-9 flex-none rounded-[10px] px-2 text-xs font-medium text-ink-soft hover:text-ink"
+            >
+              {shown ? 'Hide' : 'Show'}
+            </button>
+            <button type="submit" disabled={busy || value.length < 12} className={button}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+          {error && <ErrorNote text={error} />}
+        </form>
+      ) : (
+        <button type="button" onClick={() => setEditing(true)} className={later}>
+          Set a password
+        </button>
+      )}
+    </Row>
+  )
+}
+
 function DomainRow({ domain, next }: { domain: string | null; next: boolean }) {
   const [editing, setEditing] = useState(!domain)
   const [input, setInput] = useState('')

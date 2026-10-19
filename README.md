@@ -163,7 +163,8 @@ Pitwall works: try a task on it, then remove it from its **⋯** menu.
   Each service is then at `https://<project>-<service>.dev.example.com` (e.g.
   `guidepal-server`). Certificates are issued automatically by Caddy, only for
   those names. `PITWALL_DOMAIN=dev.example.com` sets it at install time instead.
-- One sign-in covers Pitwall and every app.
+- One sign-in covers Pitwall and every app. To sign in from other devices,
+  set a password in Setup; `sudo pitwall link` always works too.
 - There's no portless on the server: Pitwall picks each service's port and
   routes to it. Vite and similar get `--port`/`--host` added for them.
 - Previews always work there; Pitwall's preview frame is allowed even for apps

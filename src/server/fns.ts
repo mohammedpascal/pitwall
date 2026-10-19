@@ -25,7 +25,7 @@ import { expoQr, isExpoApp } from './expo'
 import { launch, launchAll } from './launch'
 import { webPreview } from './preview'
 import { cloudDomain, hostFor, pitwallHost } from './cloud'
-import { newLink } from './auth'
+import { hasPassword, newLink, setPassword } from './auth'
 import * as certs from './certs'
 import * as pm from './processes'
 import { scanFolder, slug, suggestFolders } from './scan'
@@ -193,9 +193,19 @@ export const getSetup = createServerFn({ method: 'GET' }).handler(async () => {
     domain,
     ip: publicIp(),
     seen: setupSeen(),
+    // Optional, so it isn't part of "done": it only saves you SSH on another device.
+    password: hasPassword(),
     done: signIn.claude.ok && signIn.github.ok && !!domain,
   }
 })
+
+/** A password to sign in from other devices; sessions already signed in stay. */
+export const setLoginPassword = createServerFn({ method: 'POST' })
+  .validator((d: { password: string }) => d)
+  .handler(async ({ data }) => {
+    if (!isCloud()) throw new Error('Only a cloud machine has a login')
+    setPassword(data.password)
+  })
 
 const DOMAIN = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/
 

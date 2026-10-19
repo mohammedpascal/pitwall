@@ -3,8 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Cloud mode's sign-in. There's no password: the installer (or `pitwall link`)
- * prints a link that works once, and opening it gives you a session cookie.
+ * Cloud mode's sign-in. The installer (or `pitwall link`) prints a link that
+ * works once, and opening it gives you a session cookie. A password, if you set
+ * one in Setup, signs you in from other devices without the server.
  * auth.json keeps a secret that signs the cookies and the hashes of unused
  * links; scripts/new-link.mjs writes the same format.
  */
@@ -19,6 +20,8 @@ interface AuthFile {
   secret: string
   /** Unused sign-in links: sha256 of the token, and when it stops working. */
   links?: { hash: string; expires: number }[]
+  /** An optional password, set in Setup: scrypt$<salt hex>$<hash hex>. */
+  hash?: string
 }
 
 function read(): AuthFile | null {
@@ -44,6 +47,40 @@ export function newLink() {
   const token = crypto.randomBytes(32).toString('base64url')
   write({ ...a, links: [...live(a), { hash: sha(token), expires: Date.now() + LINK_MS }] })
   return token
+}
+
+export const hasPassword = () => !!read()?.hash
+
+export function setPassword(password: string) {
+  if (password.length < 12) throw new Error('Use at least 12 characters')
+  const a = read() ?? { secret: crypto.randomBytes(32).toString('hex') }
+  const salt = crypto.randomBytes(16)
+  const hash = crypto.scryptSync(password, salt, 64)
+  write({ ...a, hash: `scrypt$${salt.toString('hex')}$${hash.toString('hex')}` })
+}
+
+export function checkPassword(password: string) {
+  const [, salt, hash] = read()?.hash?.split('$') ?? []
+  if (!salt || !hash) return false
+  const expected = Buffer.from(hash, 'hex')
+  const actual = crypto.scryptSync(password, Buffer.from(salt, 'hex'), expected.length)
+  return crypto.timingSafeEqual(expected, actual)
+}
+
+// Ten wrong passwords a minute per address, then wait.
+const attempts = new Map<string, number[]>()
+const WINDOW_MS = 60_000
+const LIMIT = 10
+
+export function tooManyAttempts(ip: string) {
+  const now = Date.now()
+  const recent = (attempts.get(ip) ?? []).filter((t) => now - t < WINDOW_MS)
+  attempts.set(ip, recent)
+  return recent.length >= LIMIT
+}
+
+export function recordFailure(ip: string) {
+  attempts.set(ip, [...(attempts.get(ip) ?? []), Date.now()])
 }
 
 /** True once for a good token: it's used up as it signs you in. */
