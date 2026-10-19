@@ -46,7 +46,13 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
           </div>
         )}
         {service.preview && (
-          <WebPreview id={service.id} name={service.name} url={service.preview.url} embeddable={service.preview.embeddable} />
+          <WebPreview
+            id={service.id}
+            name={service.name}
+            url={service.preview.url}
+            embeddable={service.preview.embeddable}
+            ready={service.preview.ready ?? true}
+          />
         )}
         {service.qr && (
           <div className="flex flex-wrap items-center gap-5 border-b border-line p-4">

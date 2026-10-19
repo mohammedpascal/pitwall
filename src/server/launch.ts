@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
+import * as certs from './certs'
+import { hostFor } from './cloud'
 import { isCloud, serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
 import { hasPortFlag, withPortFlags, withoutPortless } from './ports'
 import { isExpoApp } from './expo'
@@ -93,6 +95,9 @@ export async function launch(project: ProjectConfig, s: ServiceConfig) {
   }
 
   pm.start(key, withInstall(command, cwd, project.path), cwd, env)
+  // Get its address's certificate now, so it's ready by the time you open the app.
+  const host = cloud ? hostFor(project, s) : null
+  if (host) void certs.warm(host)
 }
 
 export async function launchAll(project: ProjectConfig) {

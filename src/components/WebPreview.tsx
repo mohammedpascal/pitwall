@@ -45,7 +45,20 @@ function resolve(input: string, base: string): string | null {
 const short = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
 /** The running web app, embedded above its output, with an editable address. */
-export function WebPreview({ id, name, url, embeddable }: { id: string; name: string; url: string; embeddable: boolean }) {
+export function WebPreview({
+  id,
+  name,
+  url,
+  embeddable,
+  ready = true,
+}: {
+  id: string
+  name: string
+  url: string
+  embeddable: boolean
+  /** False while the address's HTTPS certificate is still being issued. */
+  ready?: boolean
+}) {
   const [reloads, setReloads] = useState(0)
   const [hidden, setHidden] = useState(false)
   const [current, setCurrent] = useState(url)
@@ -172,7 +185,19 @@ export function WebPreview({ id, name, url, embeddable }: { id: string; name: st
           {name} doesn’t allow being shown inside another page, so it opens in a new tab.
         </p>
       ) : (
-        !hidden && (
+        !hidden &&
+        (!ready ? (
+          // The frame would only show the browser's "connection reset" until the certificate exists.
+          <div className="flex h-[520px] min-h-[200px] flex-col items-center justify-center gap-2 bg-bg px-6 text-center">
+            <span className="inline-flex items-center gap-2 text-[15px] font-semibold">
+              <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-warn" />
+              Setting up HTTPS for {new URL(url).host}
+            </span>
+            <p className="max-w-[420px] text-[13px] text-ink-soft">
+              The first visit to a new address takes a few seconds. This switches to the app by itself.
+            </p>
+          </div>
+        ) : (
           // Drag the bottom edge to make it taller or shorter.
           <div className="h-[520px] min-h-[200px] resize-y overflow-hidden bg-white">
             <iframe
@@ -183,7 +208,7 @@ export function WebPreview({ id, name, url, embeddable }: { id: string; name: st
               allow="clipboard-read; clipboard-write"
             />
           </div>
-        )
+        ))
       )}
     </div>
   )

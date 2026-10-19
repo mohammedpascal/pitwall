@@ -41,7 +41,8 @@ export interface ServiceView {
   /** For Expo apps: the link to scan with a phone, while running. */
   qr: { url: string; hint: string } | null
   /** For web apps: the page to show inside Pitwall, while running. */
-  preview: { url: string; embeddable: boolean } | null
+  /** ready: false while its address's HTTPS certificate is still being issued. */
+  preview: { url: string; embeddable: boolean; ready?: boolean } | null
   /** A web app on a cloud machine that has no dev domain yet, so no address to open it at. */
   needsDomain?: boolean
 }

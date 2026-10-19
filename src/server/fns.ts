@@ -26,6 +26,7 @@ import { launch, launchAll } from './launch'
 import { webPreview } from './preview'
 import { cloudDomain, hostFor, pitwallHost } from './cloud'
 import { newLink } from './auth'
+import * as certs from './certs'
 import * as pm from './processes'
 import { scanFolder, slug, suggestFolders } from './scan'
 import { startLifecycle } from './lifecycle'
@@ -227,6 +228,8 @@ export const switchDomain = createServerFn({ method: 'POST' })
     const found = await lookUp(cleanDomain(data.domain))
     if (!found.ok) throw new Error(`*.${found.domain} doesn’t point at this server yet`)
     setDomain(found.domain)
+    // Land on a working page: get pitwall.<domain>'s certificate before sending you there.
+    await Promise.race([certs.warm(pitwallHost(found.domain)), new Promise((r) => setTimeout(r, 45_000))])
     return { url: `https://${pitwallHost(found.domain)}/login/${newLink()}` }
   })
 
@@ -291,7 +294,8 @@ export const getProjectState = createServerFn({ method: 'GET' })
         // A cloud machine without a domain has no address to open it at yet.
         const hidden = isCloud() && !publicUrl
         const url = publicUrl && (view.url || isUp(view.status)) ? publicUrl : hidden ? null : view.url
-        const preview = local && publicUrl ? { url: publicUrl, embeddable: true } : hidden ? null : local
+        // Until its certificate exists the browser would only show "connection reset": say so instead.
+        const preview = local && publicUrl && host ? { url: publicUrl, embeddable: true, ready: certs.ready(host) } : hidden ? null : local
         return { id: s.id, name: s.name, command: s.command, ...view, url, qr, preview, needsDomain: hidden && !!local }
       }),
     )
