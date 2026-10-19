@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TaskDetail, TaskStart } from '#/server/types'
 import { ago, clock } from '#/lib/format'
+import { read, write } from '#/lib/storage'
 import { KIND, STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker, useModel } from './ModelPicker'
 import { MODELS, type ModelChoice } from '#/lib/models'
+import { PlanFrame } from './PlanFrame'
 import { QrCode } from './QrCode'
 
 export type TaskCommand =
@@ -43,6 +45,22 @@ export function TaskView({
   onOpenTask: (id: string) => void
 }) {
   const { task: t, plan, log, parent, followUps, remote, asking } = detail
+  // Folded away per task in this browser; a new version unfolds it, since it's new to read.
+  const planKey = `pitwall:plan-hidden:${t.id}`
+  const [planHidden, setPlanHidden] = useState(false)
+  const versions = t.plans?.length ?? 0
+  useEffect(() => {
+    const seen = Number(read(`${planKey}:v`) ?? 0)
+    if (versions > seen) {
+      write(`${planKey}:v`, String(versions))
+      write(planKey, '0')
+    }
+    setPlanHidden(read(planKey) === '1')
+  }, [planKey, versions])
+  function togglePlan(hide = !planHidden) {
+    write(planKey, hide ? '1' : '0')
+    setPlanHidden(hide)
+  }
   const stage = STAGE[t.stage]
   const Icon = sourceIcon[t.source]
   const [draft, setDraft] = useState('')
@@ -151,7 +169,9 @@ export function TaskView({
           <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
             <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
               {t.kind && (
-                <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">{KIND[t.kind]}</span>
+                <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">
+                  {KIND[t.kind]}
+                </span>
               )}
               <Icon />
               {t.sourceLabel} · {ago(t.lastSeenAt ?? t.createdAt, now)} ·{' '}
@@ -159,7 +179,11 @@ export function TaskView({
               {isClosed(t) ? (
                 MODELS[t.model ?? 'default'].label
               ) : (
-                <ModelPicker compact model={t.model ?? 'default'} onPick={(m) => void send({ type: 'model', model: m })} />
+                <ModelPicker
+                  compact
+                  model={t.model ?? 'default'}
+                  onPick={(m) => void send({ type: 'model', model: m })}
+                />
               )}
               {(t.count ?? 1) > 1 && ` · ×${t.count}`}
             </span>
@@ -299,7 +323,12 @@ export function TaskView({
                 {remote.url ? 'Remote control' : 'Connecting…'}
               </span>
               {remote.url && (
-                <a href={remote.url} target="_blank" rel="noreferrer" className="self-start text-ink-soft hover:text-ink hover:underline">
+                <a
+                  href={remote.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="self-start text-ink-soft hover:text-ink hover:underline"
+                >
                   Open in Claude ↗
                 </a>
               )}
@@ -329,35 +358,55 @@ export function TaskView({
 
         {plan && (
           <div className="flex flex-col border-b border-line">
-            <div className="flex items-center justify-between gap-2 border-b border-line-soft bg-bg/60 px-4 py-2 text-xs">
+            {/* The strip folds the plan away and back, like a preview's Hide. */}
+            <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={!planHidden}
+              onClick={() => togglePlan()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  togglePlan()
+                }
+              }}
+              className={`flex cursor-pointer items-center justify-between gap-2 bg-bg/60 px-4 py-2 text-xs hover:bg-line-soft/60 ${
+                planHidden ? '' : 'border-b border-line-soft'
+              }`}
+            >
               <span className="font-semibold">
                 Plan v{plan.v}
                 {plans.find((p) => p.v === plan.v)?.note && (
                   <span className="ml-2 font-normal text-ink-soft">“{plans.find((p) => p.v === plan.v)?.note}”</span>
                 )}
               </span>
-              {plans.length > 1 && (
-                <span className="flex items-center gap-1" role="group" aria-label="Plan versions">
-                  {plans.map((p) => (
-                    <button
-                      key={p.v}
-                      type="button"
-                      aria-pressed={p.v === showing}
-                      onClick={() => onVersion(p.v === latest ? null : p.v)}
-                      className={`h-7 min-w-7 rounded-md px-1.5 font-medium ${
-                        p.v === showing ? 'bg-ink text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-                      }`}
-                    >
-                      v{p.v}
-                    </button>
-                  ))}
-                </span>
-              )}
+              <span className="flex items-center gap-1">
+                {plans.length > 1 && (
+                  <span className="flex items-center gap-1" role="group" aria-label="Plan versions">
+                    {plans.map((p) => (
+                      <button
+                        key={p.v}
+                        type="button"
+                        aria-pressed={p.v === showing}
+                        onClick={(e) => {
+                          // Picks a version, and shows it if the plan was folded away.
+                          e.stopPropagation()
+                          onVersion(p.v === latest ? null : p.v)
+                          togglePlan(false)
+                        }}
+                        className={`h-7 min-w-7 rounded-md px-1.5 font-medium ${
+                          p.v === showing ? 'bg-ink text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+                        }`}
+                      >
+                        v{p.v}
+                      </button>
+                    ))}
+                  </span>
+                )}
+                <span className="ml-2 font-medium text-ink-soft">{planHidden ? 'Show plan' : 'Hide'}</span>
+              </span>
             </div>
-            <div className="h-[640px] min-h-[240px] resize-y overflow-hidden bg-white">
-              {/* Claude's page, fully sandboxed: no scripts, no access to Pitwall. */}
-              <iframe title={`Plan v${plan.v}`} srcDoc={plan.html} sandbox="" className="block h-full w-full border-0" />
-            </div>
+            {!planHidden && <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />}
           </div>
         )}
 

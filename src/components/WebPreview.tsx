@@ -1,24 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { read, write } from '#/lib/storage'
 import { ExternalIcon } from './icons'
 
 const hiddenKey = (id: string) => `pitwall:preview-hidden:${id}`
 const pathKey = (id: string) => `pitwall:preview-path:${id}`
-
-function read(key: string) {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
-function write(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value)
-  } catch {
-    /* storage unavailable: works for this visit only */
-  }
-}
 
 /**
  * Turn what was typed into a URL, like a browser address bar:
