@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import type { ServiceStatus, ServiceView } from '#/server/types'
 import { duration } from '#/lib/format'
@@ -156,6 +157,13 @@ export function ServiceCard({
 }
 
 function StatusLine({ service: s, now }: { service: ServiceView; now: number }) {
+  if (s.status === 'running' && s.needsDomain) {
+    return (
+      <Link to="/setup" onClick={(e) => e.stopPropagation()} className="text-[13px] font-medium text-ink-soft hover:text-ink hover:underline">
+        Add a dev domain to open it
+      </Link>
+    )
+  }
   if (s.status === 'running' && s.url) {
     return (
       <a

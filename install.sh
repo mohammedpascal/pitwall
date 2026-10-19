@@ -3,17 +3,17 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/mohammedpascal/pitwall/main/install.sh | sudo bash
 #
-# Sets up Pitwall at https://pitwall.<your dev domain>, each service at
-# https://<project>-<service>.<your dev domain>, Caddy for HTTPS, a firewall,
-# Node, bun, pnpm/yarn, Claude Code, the GitHub CLI and build tools, and prints
-# a generated password. Then `sudo pitwall sign-in` connects Claude and GitHub.
-# Running it again updates Pitwall and keeps your domain, password and data.
+# Asks nothing. Sets up Pitwall with Caddy for HTTPS, a firewall, Node, bun,
+# pnpm/yarn, Claude Code, the GitHub CLI and build tools, and prints a link that
+# signs you in. Pitwall is at https://<this server's IP> until you give it a dev
+# domain on its Setup screen, where you also sign in to Claude and GitHub.
+# Running it again updates Pitwall and keeps your domain, data and sign-ins.
 #
-# Optional settings:  PITWALL_DOMAIN=dev.example.com   (skip the question)
+# Optional settings:  PITWALL_DOMAIN=dev.example.com   (use this dev domain now)
 #                     PITWALL_VERSION=v0.2.0           (default: latest release)
-#                     PITWALL_SKIP_DNS_CHECK=1         (don't wait for DNS)
 #                     PITWALL_TARBALL=<url>            (install this build instead)
 #                     PITWALL_PROJECTS=/srv/code       (default: /home/pitwall/projects)
+#                     PITWALL_IP=203.0.113.7           (if it can't find its public IP)
 set -euo pipefail
 
 REPO="${PITWALL_REPO:-mohammedpascal/pitwall}"
@@ -28,8 +28,6 @@ bold=$'\e[1m'; dim=$'\e[2m'; red=$'\e[31m'; green=$'\e[32m'; reset=$'\e[0m'
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n%s▸ %s%s\n' "$bold" "$*" "$reset"; }
 die()  { printf '%sError:%s %s\n' "$red" "$reset" "$*" >&2; exit 1; }
-# Prompts read the terminal, so they work under `curl | bash`.
-ask()  { local answer; read -r -p "$1" answer </dev/tty; printf '%s' "$answer"; }
 
 # ── Checks ──────────────────────────────────────────────────────────────────
 [ "$(id -u)" -eq 0 ] || die "Run as root: curl -fsSL … | sudo bash"
@@ -45,45 +43,15 @@ done
 
 say "${bold}Pitwall${reset} ${dim}installer${reset}"
 
-# ── Domain ──────────────────────────────────────────────────────────────────
-existing_domain=""
-if [ -f "$DATA/pitwall.config.json" ]; then
-  existing_domain=$(sed -n 's/.*"domain"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DATA/pitwall.config.json" | head -1)
-fi
-DOMAIN="${PITWALL_DOMAIN:-$existing_domain}"
-if [ -z "$DOMAIN" ]; then
-  say ""
-  say "Pick a dev domain. Pitwall will be at pitwall.<domain>, and each service"
-  say "at <project>-<service>.<domain>. For example: dev.example.com"
-  DOMAIN=$(ask "Dev domain: ")
-fi
-DOMAIN=$(printf '%s' "$DOMAIN" | tr 'A-Z' 'a-z' | sed 's/^\.*//; s/\.*$//; s#^https\?://##')
-[[ "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "\"$DOMAIN\" isn't a domain name."
+# ── Address ─────────────────────────────────────────────────────────────────
+IP="${PITWALL_IP:-$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || curl -fsS4 --max-time 5 https://ifconfig.me 2>/dev/null || true)}"
+[[ "$IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Couldn't find this server's public IP. Run again with PITWALL_IP=<its IPv4 address>."
 
-IP=$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || curl -fsS4 --max-time 5 https://ifconfig.me 2>/dev/null || true)
-[ -n "$IP" ] || IP="<this server's public IP>"
-
-step "DNS"
-say "Add this record where ${DOMAIN#*.}'s DNS is managed (once):"
-say ""
-say "    ${bold}*.${DOMAIN}   A   ${IP}${reset}"
-say ""
-# A random name checks the wildcard, not just one record.
-probe="check-$RANDOM.$DOMAIN"
-while [ -z "${PITWALL_SKIP_DNS_CHECK:-}" ]; do
-  resolved=$(getent ahostsv4 "$probe" 2>/dev/null | awk 'NR==1{print $1}')
-  if [ -n "$resolved" ] && { [ "$resolved" = "$IP" ] || [[ "$IP" == \<* ]]; }; then
-    say "${green}✓${reset} *.$DOMAIN points at $resolved"
-    break
-  fi
-  if [ -n "$resolved" ]; then
-    say "*.$DOMAIN points at $resolved, not $IP."
-  else
-    say "*.$DOMAIN doesn't resolve yet."
-  fi
-  reply=$(ask "Press Enter to check again, or type skip to continue anyway: ")
-  [ "$reply" = skip ] && break
-done
+DOMAIN=""
+if [ -n "${PITWALL_DOMAIN:-}" ]; then
+  DOMAIN=$(printf '%s' "$PITWALL_DOMAIN" | tr 'A-Z' 'a-z' | sed 's/^\.*//; s/\.*$//; s#^https\?://##')
+  [[ "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "\"$DOMAIN\" isn't a domain name."
+fi
 
 # ── Packages ────────────────────────────────────────────────────────────────
 step "Installing packages"
@@ -173,19 +141,16 @@ chown -R root:root "$APP"
 chmod -R a+rX "$APP"
 rm -rf "$APP.old"
 
-if [ ! -f "$DATA/pitwall.config.json" ]; then
-  printf '{\n  "domain": "%s",\n  "projects": []\n}\n' "$DOMAIN" >"$DATA/pitwall.config.json"
-  chown "$USER_NAME:$USER_NAME" "$DATA/pitwall.config.json"
-elif [ -z "$existing_domain" ] || [ "$existing_domain" != "$DOMAIN" ]; then
-  say "Keeping the domain in $DATA/pitwall.config.json; edit it there to change it."
+# No domain yet is fine: Pitwall answers on the IP, and Setup adds one.
+[ -f "$DATA/pitwall.config.json" ] || echo '{ "projects": [] }' >"$DATA/pitwall.config.json"
+if [ -n "$DOMAIN" ]; then
+  jq --arg d "$DOMAIN" '.domain = $d' "$DATA/pitwall.config.json" >"$DATA/pitwall.config.json.new"
+  mv "$DATA/pitwall.config.json.new" "$DATA/pitwall.config.json"
 fi
+chown "$USER_NAME:$USER_NAME" "$DATA/pitwall.config.json"
+new_link() { cd "$DATA" && runuser -u "$USER_NAME" -- env PITWALL_IP="$IP" node "$APP/scripts/new-link.mjs"; }
 
-PASSWORD=""
-if [ ! -f "$DATA/.pitwall/auth.json" ]; then
-  PASSWORD=$(cd "$DATA" && runuser -u "$USER_NAME" -- node "$APP/scripts/set-password.mjs")
-fi
-
-# The pitwall command: sign-in, reset-password, logs, restart, status, update, uninstall.
+# The pitwall command: link, sign-in, logs, restart, status, update, uninstall.
 # Written beside it and moved into place: a running `pitwall update` is still
 # reading the old file, and bash would choke on new text at its old position.
 cat >/usr/local/bin/pitwall.new <<EOF
@@ -206,11 +171,10 @@ case "\${1:-help}" in
         git config --global user.email "\$(gh api user --jq ".email // \"\\(.id)+\\(.login)@users.noreply.github.com\"")"
         echo "Git: commits by \$(git config --global user.name) <\$(git config --global user.email)>"
       fi' ;;
-  reset-password)
+  link)
     [ "\$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
-    # Read on every sign-in, so no restart (which would stop your running services).
-    pw=\$(cd $DATA && runuser -u $USER_NAME -- node $APP/scripts/set-password.mjs)
-    echo "New password (everyone is signed out): \$pw" ;;
+    echo "Sign in with this link (works once, for 24 hours):"
+    cd $DATA && runuser -u $USER_NAME -- env PITWALL_IP=$IP node $APP/scripts/new-link.mjs ;;
   logs)    journalctl -u pitwall -f -n 100 ;;
   restart) systemctl restart pitwall ;;
   status)
@@ -223,7 +187,7 @@ case "\${1:-help}" in
   uninstall)
     [ "\$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
     ask() { local a; read -r -p "\$1 [y/N] " a </dev/tty; [[ "\$a" =~ ^[Yy] ]]; }
-    ask "Remove Pitwall (its app, settings, tasks and password)?" || exit 0
+    ask "Remove Pitwall (its app, settings and tasks)?" || exit 0
     # Also asked now, so nothing is half done if you say no.
     remove_user=""
     if id $USER_NAME >/dev/null 2>&1; then
@@ -254,7 +218,7 @@ case "\${1:-help}" in
     fi
     echo "Node, Caddy, git, the GitHub CLI and the firewall rules stay installed."
     rm -f /usr/local/bin/pitwall ;;
-  *) echo "Usage: pitwall sign-in | reset-password | logs | restart | status | update | uninstall" ;;
+  *) echo "Usage: pitwall link | sign-in | logs | restart | status | update | uninstall" ;;
 esac
 EOF
 chmod 755 /usr/local/bin/pitwall.new
@@ -275,6 +239,9 @@ Environment=PORT=$UI_PORT
 Environment=HOST=127.0.0.1
 Environment=PITWALL_GATEWAY_PORT=$GATEWAY_PORT
 Environment=PITWALL_PROJECTS=$PROJECTS
+# A cloud machine, with or without a dev domain; it answers on this IP until it has one.
+Environment=PITWALL_CLOUD=1
+Environment=PITWALL_IP=$IP
 # No terminal to answer corepack's "download pnpm?" question.
 Environment=COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 Environment=PATH=$HOME_DIR/.bun/bin:$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -318,11 +285,20 @@ cat >/etc/caddy/Caddyfile <<EOF
 	}
 }
 
-pitwall.$DOMAIN {
+# Pitwall on the server's IP, before it has a domain (then it forwards there).
+# Certificates for an IP address are short-lived ones; Caddy renews them.
+https://$IP {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
 	reverse_proxy 127.0.0.1:$UI_PORT
 }
 
-# Every other name under the domain: the gateway checks the login and routes to the service.
+# Every name under the dev domain, whichever it is: the gateway sends pitwall.<domain>
+# to Pitwall, checks the login for the rest and routes each to its service.
+# Caddy never needs the domain, so it can change from Pitwall's Setup screen.
 https:// {
 	tls {
 		on_demand
@@ -335,17 +311,11 @@ systemctl enable caddy >/dev/null 2>&1
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
 # ── Done ────────────────────────────────────────────────────────────────────
+LINK=$(new_link)
 say ""
 say "${green}${bold}Pitwall is ready.${reset}"
 say ""
-say "  Open      ${bold}https://pitwall.$DOMAIN${reset}"
-if [ -n "$PASSWORD" ]; then
-  say "  Password  ${bold}$PASSWORD${reset}"
-  say "            ${dim}Shown once. Store it in your password manager. New one: sudo pitwall reset-password${reset}"
-else
-  say "  Password  unchanged ${dim}(new one: sudo pitwall reset-password)${reset}"
-fi
+say "  Open  ${bold}$LINK${reset}"
+say "        ${dim}Signs you in. Works once, for 24 hours. A new one: sudo pitwall link${reset}"
 say ""
-say "Sign in there; Pitwall walks you through the rest."
-say ""
-say "${dim}The first visit to each address takes a few seconds while its certificate is issued.${reset}"
+say "${dim}The first visit takes a few seconds while its certificate is issued.${reset}"

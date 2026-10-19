@@ -7,12 +7,15 @@ import * as pm from './processes'
 
 /**
  * Cloud mode's front door for apps. Caddy hands every <name>.<domain> request
- * here (Pitwall's own pages go straight to Pitwall). The gateway checks the
- * login cookie, finds the service by host name, and proxies to the port it
- * listens on, WebSockets included, so hot reload works.
+ * here, so Caddy never needs to know the domain and it can change any time.
+ * pitwall.<domain> goes on to Pitwall itself, as it is. For the rest the gateway
+ * checks the login cookie, finds the service by host name, and proxies to the
+ * port it listens on, WebSockets included, so hot reload works.
  */
 
 const PORT = Number(process.env.PITWALL_GATEWAY_PORT) || 3001
+// Pitwall's own port: server.mjs listens on PORT.
+const UI_PORT = Number(process.env.PORT) || 3000
 
 type Handlers = {
   request: (req: http.IncomingMessage, res: http.ServerResponse) => void
@@ -123,10 +126,21 @@ function responseHeaders(req: http.IncomingMessage, upstreamRes: http.IncomingMe
   return headers
 }
 
+const isPitwall = (req: http.IncomingMessage, domain: string | null) => !!domain && hostOf(req) === pitwallHost(domain)
+
 const handlers: Handlers = {
   request(req, res) {
     const domain = cloudDomain()
     if (!domain) return page(res, 404, 'Not set up', '<p>Pitwall has no dev domain configured.</p>')
+    // Pitwall checks its own sign-in; the headers (Host, X-Forwarded-For from Caddy) pass through untouched.
+    if (isPitwall(req, domain)) {
+      const out = http.request({ host: '127.0.0.1', port: UI_PORT, method: req.method, path: req.url, headers: req.headers }, (r) => {
+        res.writeHead(r.statusCode ?? 502, r.statusMessage, r.headers)
+        r.pipe(res)
+      })
+      out.on('error', () => (res.headersSent ? res.destroy() : page(res, 502, 'Pitwall is restarting', '<p>This page retries by itself.</p>', true)))
+      return void req.pipe(out)
+    }
     if (!signedIn(req)) return toLogin(req, res, domain)
     const host = hostOf(req)
     const route = routeForHost(host)

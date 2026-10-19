@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { execFile } from 'node:child_process'
+import dns from 'node:dns/promises'
 import path from 'node:path'
 import { createServerFn } from '@tanstack/react-start'
 import {
@@ -8,7 +9,12 @@ import {
   expand,
   findProject,
   insertProject,
+  isCloud,
   loadConfig,
+  markSetupSeen,
+  publicIp,
+  setDomain,
+  setupSeen,
   rawProject,
   removeProject as removeFromConfig,
   serviceCwd,
@@ -17,7 +23,8 @@ import {
 import { expoQr, isExpoApp } from './expo'
 import { launch, launchAll } from './launch'
 import { webPreview } from './preview'
-import { cloudDomain, hostFor } from './cloud'
+import { cloudDomain, hostFor, pitwallHost } from './cloud'
+import { newLink } from './auth'
 import * as pm from './processes'
 import { scanFolder, slug, suggestFolders } from './scan'
 import { startLifecycle } from './lifecycle'
@@ -112,7 +119,7 @@ function toConfig(s: { id: string; name: string; command: string; cwd: string })
 
 /** Where projects go: PITWALL_PROJECTS, else ~/projects on a cloud machine and ~/src here. */
 function projectsHome() {
-  return expand(process.env.PITWALL_PROJECTS?.trim() || (cloudDomain() ? '~/projects' : '~/src'))
+  return expand(process.env.PITWALL_PROJECTS?.trim() || (isCloud() ? '~/projects' : '~/src'))
 }
 
 /** Where the folder box starts; ~ stays ~ so it reads short. */
@@ -122,7 +129,60 @@ export const getProjectsHome = createServerFn({ method: 'GET' }).handler(async (
 })
 
 /** Only on a cloud machine: here you have your own terminal, and Claude and gh are yours already. */
-export const getSignIn = createServerFn({ method: 'GET' }).handler(() => (cloudDomain() ? signin.status() : null))
+export const getSignIn = createServerFn({ method: 'GET' }).handler(() => (isCloud() ? signin.status() : null))
+
+/** Everything the Setup screen shows. Null on a laptop, which needs no setup. */
+export const getSetup = createServerFn({ method: 'GET' }).handler(async () => {
+  if (!isCloud()) return null
+  const signIn = await signin.status()
+  const domain = cloudDomain()
+  return {
+    signIn,
+    domain,
+    ip: publicIp(),
+    seen: setupSeen(),
+    done: signIn.claude.ok && signIn.github.ok && !!domain,
+  }
+})
+
+const DOMAIN = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/
+
+function cleanDomain(input: string) {
+  const d = input.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^\.+|\.+$/g, '').replace(/\/.*$/, '')
+  if (!DOMAIN.test(d)) throw new Error(`“${input.trim()}” isn’t a domain name, like dev.example.com`)
+  return d
+}
+
+/** Where *.<domain> points. A made-up name checks the wildcard, not one record. */
+async function lookUp(domain: string) {
+  const ip = publicIp()
+  const probe = `check-${crypto.randomBytes(4).toString('hex')}.${domain}`
+  const points = await dns
+    .resolve4(probe)
+    .then((a) => a[0] ?? null)
+    .catch(() => null)
+  return { domain, ip, points, ok: !!points && (!ip || points === ip) }
+}
+
+export const checkDomain = createServerFn({ method: 'POST' })
+  .validator((d: { domain: string }) => d)
+  .handler(({ data }) => lookUp(cleanDomain(data.domain)))
+
+/** Moves Pitwall to the domain: returns a sign-in link there, since the cookie can't follow by itself. */
+export const switchDomain = createServerFn({ method: 'POST' })
+  .validator((d: { domain: string }) => d)
+  .handler(async ({ data }) => {
+    if (!isCloud()) throw new Error('Only a cloud machine has a dev domain')
+    // Checked again here: once it's set, this address forwards there, so a wrong domain would lock you out.
+    const found = await lookUp(cleanDomain(data.domain))
+    if (!found.ok) throw new Error(`*.${found.domain} doesn’t point at this server yet`)
+    setDomain(found.domain)
+    return { url: `https://${pitwallHost(found.domain)}/login/${newLink()}` }
+  })
+
+export const finishSetup = createServerFn({ method: 'POST' }).handler(async () => {
+  markSetupSeen()
+})
 
 /** Claude returns the page to open; GitHub, the code to enter there. */
 export const startSignIn = createServerFn({ method: 'POST' })
@@ -178,9 +238,11 @@ export const getProjectState = createServerFn({ method: 'GET' })
         // the gateway lets Pitwall's preview frame it.
         const host = hostFor(project, s)
         const publicUrl = host ? `https://${host}` : null
-        const url = publicUrl && (view.url || isUp(view.status)) ? publicUrl : view.url
-        const preview = local && publicUrl ? { url: publicUrl, embeddable: true } : local
-        return { id: s.id, name: s.name, command: s.command, ...view, url, qr, preview }
+        // A cloud machine without a domain has no address to open it at yet.
+        const hidden = isCloud() && !publicUrl
+        const url = publicUrl && (view.url || isUp(view.status)) ? publicUrl : hidden ? null : view.url
+        const preview = local && publicUrl ? { url: publicUrl, embeddable: true } : hidden ? null : local
+        return { id: s.id, name: s.name, command: s.command, ...view, url, qr, preview, needsDomain: hidden && !!local }
       }),
     )
 
@@ -194,7 +256,7 @@ export const getProjectState = createServerFn({ method: 'GET' })
     return {
       id: project.id,
       name: project.name,
-      cloud: !!cloudDomain(),
+      cloud: isCloud(),
       path: displayPath(project.path),
       services,
       logService,

@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { errorMessage } from '#/lib/errors'
-import { finishClaudeSignIn, getSignIn, startSignIn } from '#/server/fns'
-import type { SignInStatus } from '#/server/signin'
+import { checkDomain, finishClaudeSignIn, getSetup, startSignIn, switchDomain } from '#/server/fns'
 import { ErrorNote } from './ui'
 
+export type SetupState = NonNullable<Awaited<ReturnType<typeof getSetup>>>
+
 const POLL_MS = 2_000
+const DNS_POLL_MS = 3_000
 
 const button =
   'h-9 flex-none rounded-[10px] bg-ink px-4 text-[13px] font-semibold text-white hover:bg-ink/85 disabled:opacity-50'
@@ -12,27 +14,25 @@ const button =
 const later =
   'h-9 flex-none rounded-[10px] border border-line px-4 text-[13px] font-semibold hover:border-ink disabled:opacity-50'
 
-/** Signs this machine in to Claude and GitHub; shown only until both are done. */
-export function Connect({ initial }: { initial: SignInStatus | null }) {
+/** The three things a cloud machine needs: Claude, GitHub and a dev domain. Each row turns green when done. */
+export function Setup({ initial }: { initial: SetupState }) {
   const [state, setState] = useState(initial)
   const [busy, setBusy] = useState<'claude' | 'github' | 'code' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState('')
 
   const refresh = () =>
-    getSignIn()
-      .then(setState)
+    getSetup()
+      .then((s) => s && setState(s))
       .catch(() => {})
 
   // GitHub finishes on its own once you approve the code there.
-  const waiting = !!state?.github.code
+  const waiting = !!state.signIn.github.code
   useEffect(() => {
     if (!waiting) return
     const t = setInterval(() => void refresh(), POLL_MS)
     return () => clearInterval(t)
   }, [waiting])
-
-  if (!state || (state.claude.ok && state.github.ok)) return null
 
   async function signInToClaude() {
     // Opened now, while it still counts as your click; the link fills in when it's ready.
@@ -75,14 +75,10 @@ export function Connect({ initial }: { initial: SignInStatus | null }) {
     setBusy(null)
   }
 
-  const { claude, github } = state
+  const { claude, github } = state.signIn
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-[15px] font-semibold">Sign in on this machine</h2>
-        <p className="text-[13px] text-ink-soft">Claude works on your tasks here, and GitHub lets it clone and push.</p>
-      </div>
+    <section className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 pt-1">
 
       <Row name="Claude" why="For tasks" ok={claude.ok} who={claude.who}>
         {claude.url ? (
@@ -155,13 +151,145 @@ export function Connect({ initial }: { initial: SignInStatus | null }) {
       </Row>
 
       {(error ?? claude.error ?? github.error) && <ErrorNote text={(error ?? claude.error ?? github.error)!} />}
+
+      <DomainRow domain={state.domain} next={claude.ok && github.ok} />
     </section>
   )
 }
 
-function Row({ name, why, ok, who, children }: { name: string; why: string; ok: boolean; who: string | null; children: ReactNode }) {
+type Check = Awaited<ReturnType<typeof checkDomain>>
+
+/** Type a domain, add the one DNS record it shows, then move Pitwall there once it points here. */
+function DomainRow({ domain, next }: { domain: string | null; next: boolean }) {
+  const [editing, setEditing] = useState(!domain)
+  const [input, setInput] = useState('')
+  const [check, setCheck] = useState<Check | null>(null)
+  const [moving, setMoving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Checked shortly after you stop typing, then every few seconds until the record shows up.
+  useEffect(() => {
+    setCheck(null)
+    setError(null)
+    const typed = input.trim()
+    if (!editing || !/\.[a-z]{2,}$/i.test(typed)) return
+    let live = true
+    let timer: ReturnType<typeof setTimeout>
+    const run = () =>
+      checkDomain({ data: { domain: typed } })
+        .then((c) => {
+          if (!live) return
+          setCheck(c)
+          if (!c.ok) timer = setTimeout(run, DNS_POLL_MS)
+        })
+        .catch((e) => live && setError(errorMessage(e)))
+    timer = setTimeout(run, 600)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [input, editing])
+
+  async function move() {
+    if (!check?.ok) return
+    setMoving(true)
+    setError(null)
+    try {
+      const { url } = await switchDomain({ data: { domain: check.domain } })
+      window.location.href = url
+    } catch (e) {
+      setError(errorMessage(e))
+      setMoving(false)
+    }
+  }
+
+  if (domain && !editing) {
+    return (
+      <Row
+        name="Dev domain"
+        why="To open your apps"
+        ok
+        who={`pitwall.${domain}`}
+        action={
+          <button type="button" onClick={() => setEditing(true)} className="text-[13px] font-medium text-ink-soft hover:text-ink hover:underline">
+            Change
+          </button>
+        }
+      >
+        {null}
+      </Row>
+    )
+  }
+
+  const record = check ? `*.${check.domain}` : null
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-t border-line-soft pt-4">
+    <Row name="Dev domain" why="To open your apps" ok={false} who={null}>
+      <div className="flex w-full flex-col gap-2">
+        <label htmlFor="dev-domain" className="sr-only">
+          Dev domain
+        </label>
+        <input
+          id="dev-domain"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="dev.example.com"
+          className="h-9 w-full rounded-[10px] border border-line bg-surface px-3 font-mono text-[13px] outline-none focus:border-ink"
+        />
+        {check?.ok && (
+          <>
+            <p className="text-[13px] font-medium text-ok">{record} points at this server.</p>
+            <button type="button" onClick={() => void move()} disabled={moving} className={`${next ? button : later} self-start`}>
+              {moving ? 'Moving…' : `Move to pitwall.${check.domain}`}
+            </button>
+          </>
+        )}
+        {check && !check.ok && (
+          <>
+            <p className="text-[13px] text-ink-soft">Add this record at your DNS provider:</p>
+            <div className="flex items-center gap-2 rounded-[10px] bg-bg px-3 py-2 font-mono text-[13px]">
+              <span className="min-w-0 flex-1 break-all">
+                {record} &nbsp;A&nbsp; {check.ip ?? 'this server’s IP'}
+              </span>
+              {check.ip && (
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard?.writeText(check.ip!)}
+                  className="h-7 flex-none rounded-lg border border-line bg-surface px-2 text-xs font-medium hover:border-ink"
+                >
+                  Copy IP
+                </button>
+              )}
+            </div>
+            <p className="text-[13px] text-ink-soft">
+              {check.points ? `It points at ${check.points}, not ${check.ip}.` : 'Waiting for it to show up…'} This checks again by itself.
+            </p>
+          </>
+        )}
+        {error && <ErrorNote text={error} />}
+      </div>
+    </Row>
+  )
+}
+
+function Row({
+  name,
+  why,
+  ok,
+  who,
+  action,
+  children,
+}: {
+  name: string
+  why: string
+  ok: boolean
+  who: string | null
+  action?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 border-t border-line-soft pt-4 first:border-t-0">
       <div className="flex min-w-[140px] flex-col">
         <span className="text-[14px] font-semibold">{name}</span>
         <span className="text-xs text-ink-soft">{why}</span>
@@ -172,6 +300,7 @@ function Row({ name, why, ok, who, children }: { name: string; why: string; ok: 
             <path d="M5 12.5l4.5 4.5L19 7.5" />
           </svg>
           {who ?? 'Signed in'}
+          {action && <span className="ml-2">{action}</span>}
         </span>
       ) : (
         <div className="flex min-w-0 flex-1 justify-end">{children}</div>

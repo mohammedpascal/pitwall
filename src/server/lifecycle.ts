@@ -1,9 +1,8 @@
-import { findProject, loadConfig } from './config'
+import { findProject, isCloud, loadConfig } from './config'
 import { launch } from './launch'
 import * as pm from './processes'
 import * as tasks from './tasks'
 import { closeFixedCrashes, resumeInterrupted, understand } from './workflow'
-import { cloudDomain } from './cloud'
 import { startGateway } from './gateway'
 
 // Server-only setup. Kept out of fns.ts: top-level code there would be shipped
@@ -53,7 +52,7 @@ export function startLifecycle() {
   // Every new task is read by Claude as soon as it arrives.
   tasks.onNewTask((t) => void understand(t))
   // On a cloud machine, apps are reached through the gateway at <name>.<domain>.
-  if (cloudDomain()) startGateway()
+  if (isCloud()) startGateway()
   // Replaced on every call, so a hot reload swaps in the new code.
   clearInterval(boot.__pitwallTick)
   boot.__pitwallTick = setInterval(closeFixedCrashes, 5000)

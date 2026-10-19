@@ -3,48 +3,66 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Cloud mode's one password. The installer stores only its scrypt hash, with a
- * secret that signs session cookies (scripts/set-password.mjs writes the same
- * format). Resetting the password replaces the secret, which signs everyone out.
+ * Cloud mode's sign-in. There's no password: the installer (or `pitwall link`)
+ * prints a link that works once, and opening it gives you a session cookie.
+ * auth.json keeps a secret that signs the cookies and the hashes of unused
+ * links; scripts/new-link.mjs writes the same format.
  */
 
 const FILE = path.join(process.cwd(), '.pitwall', 'auth.json')
 
 export const COOKIE = 'pitwall_session'
 const MAX_AGE_S = 30 * 24 * 3600
+const LINK_MS = 24 * 3600_000
 
 interface AuthFile {
-  /** scrypt$<salt hex>$<hash hex> */
-  hash: string
   secret: string
+  /** Unused sign-in links: sha256 of the token, and when it stops working. */
+  links?: { hash: string; expires: number }[]
 }
 
 function read(): AuthFile | null {
   try {
     const a = JSON.parse(fs.readFileSync(FILE, 'utf8')) as AuthFile
-    return a.hash && a.secret ? a : null
+    return a.secret ? a : null
   } catch {
     return null
   }
 }
 
-export const hasPassword = () => read() !== null
+function write(a: AuthFile) {
+  fs.mkdirSync(path.dirname(FILE), { recursive: true })
+  fs.writeFileSync(FILE, JSON.stringify(a, null, 2), { mode: 0o600 })
+}
 
-export function checkPassword(password: string) {
+const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
+const live = (a: AuthFile) => (a.links ?? []).filter((l) => l.expires > Date.now())
+
+/** A new sign-in link's token. */
+export function newLink() {
+  const a = read() ?? { secret: crypto.randomBytes(32).toString('hex') }
+  const token = crypto.randomBytes(32).toString('base64url')
+  write({ ...a, links: [...live(a), { hash: sha(token), expires: Date.now() + LINK_MS }] })
+  return token
+}
+
+/** True once for a good token: it's used up as it signs you in. */
+export function useLink(token: string) {
   const a = read()
-  if (!a) return false
-  const [, salt, hash] = a.hash.split('$')
-  if (!salt || !hash) return false
-  const expected = Buffer.from(hash, 'hex')
-  const actual = crypto.scryptSync(password, Buffer.from(salt, 'hex'), expected.length)
-  return crypto.timingSafeEqual(expected, actual)
+  if (!a || !token) return false
+  const want = Buffer.from(sha(token))
+  const links = live(a)
+  const match = links.find((l) => l.hash.length === want.length && crypto.timingSafeEqual(Buffer.from(l.hash), want))
+  if (!match) return false
+  write({ ...a, links: links.filter((l) => l !== match) })
+  return true
 }
 
 const sign = (secret: string, data: string) => crypto.createHmac('sha256', secret).update(data).digest('base64url')
 
 export function newSession() {
   const a = read()
-  if (!a) throw new Error('No password set. Run the installer, or scripts/set-password.mjs.')
+  if (!a) throw new Error('Not set up. Run the installer, or scripts/new-link.mjs.')
   const issued = String(Math.floor(Date.now() / 1000))
   return `${issued}.${sign(a.secret, issued)}`
 }
@@ -59,11 +77,12 @@ export function validSession(token: string | undefined | null) {
   return Date.now() / 1000 - Number(issued) < MAX_AGE_S
 }
 
-/** The session cookie, on the dev domain so it covers Pitwall and every app. */
-export function sessionCookie(domain: string, token: string | null) {
+/** The session cookie: on the dev domain, so it covers Pitwall and every app; with none yet, just this address. */
+export function sessionCookie(domain: string | null, token: string | null) {
   const value = token ?? ''
   const age = token ? MAX_AGE_S : 0
-  return `${COOKIE}=${value}; Domain=.${domain}; Path=/; Max-Age=${age}; HttpOnly; Secure; SameSite=Lax`
+  const scope = domain ? `Domain=.${domain}; ` : ''
+  return `${COOKIE}=${value}; ${scope}Path=/; Max-Age=${age}; HttpOnly; Secure; SameSite=Lax`
 }
 
 export function readCookie(header: string | undefined | null, name = COOKIE) {
@@ -82,33 +101,4 @@ export function withoutSessionCookie(header: string | undefined) {
     .map((p) => p.trim())
     .filter((p) => p && !p.startsWith(`${COOKIE}=`))
   return kept.length ? kept.join('; ') : undefined
-}
-
-// Ten wrong passwords a minute per address, then wait.
-const attempts = new Map<string, number[]>()
-const WINDOW_MS = 60_000
-const LIMIT = 10
-
-export function tooManyAttempts(ip: string) {
-  const now = Date.now()
-  const recent = (attempts.get(ip) ?? []).filter((t) => now - t < WINDOW_MS)
-  attempts.set(ip, recent)
-  return recent.length >= LIMIT
-}
-
-export function recordFailure(ip: string) {
-  attempts.set(ip, [...(attempts.get(ip) ?? []), Date.now()])
-}
-
-/** Only send people back to Pitwall or one of the dev domain's apps after login. */
-export function safeNext(next: string | null | undefined, domain: string) {
-  if (!next) return '/'
-  if (next.startsWith('/') && !next.startsWith('//')) return next
-  try {
-    const u = new URL(next)
-    if (u.protocol === 'https:' && (u.hostname === domain || u.hostname.endsWith(`.${domain}`))) return u.toString()
-  } catch {
-    /* not a URL */
-  }
-  return '/'
 }

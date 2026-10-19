@@ -42,6 +42,8 @@ export interface ServiceView {
   qr: { url: string; hint: string } | null
   /** For web apps: the page to show inside Pitwall, while running. */
   preview: { url: string; embeddable: boolean } | null
+  /** A web app on a cloud machine that has no dev domain yet, so no address to open it at. */
+  needsDomain?: boolean
 }
 
 export type TaskSource = 'manual' | 'terminal' | 'console' | 'email'

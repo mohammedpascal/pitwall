@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { configuredDomain, serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
+import { isCloud, serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
 import { hasPortFlag, withPortFlags, withoutPortless } from './ports'
 import { isExpoApp } from './expo'
 import * as pm from './processes'
@@ -69,7 +69,7 @@ export async function launch(project: ProjectConfig, s: ServiceConfig) {
   if (isUp(key)) return
   const cwd = serviceCwd(project, s)
   const env: Record<string, string> = {}
-  const cloud = !!configuredDomain()
+  const cloud = isCloud()
   // On a cloud machine there's no portless; Pitwall routes to each service itself.
   let command = cloud ? withoutPortless(s.command) : s.command
   const taken = () => new Set([...given].filter(([k]) => k !== key && isUp(k)).map(([, port]) => port))

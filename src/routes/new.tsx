@@ -1,15 +1,14 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ErrorNote, FolderInput, PageHeader } from '#/components/ui'
 import { errorMessage } from '#/lib/errors'
-import { Connect } from '#/components/Connect'
-import { createProject, getProjects, getProjectsHome, getSignIn, openProject } from '#/server/fns'
+import { createProject, getProjects, getProjectsHome, getSetup, openProject } from '#/server/fns'
 import type { OpenResult } from '#/server/types'
 
 export const Route = createFileRoute('/new')({
   loader: async () => {
-    const [projects, home, signIn] = await Promise.all([getProjects(), getProjectsHome(), getSignIn()])
-    return { projects, home, signIn }
+    const [projects, home, setup] = await Promise.all([getProjects(), getProjectsHome(), getSetup()])
+    return { projects, home, setup }
   },
   head: () => ({ meta: [{ title: 'Open a project · Pitwall' }] }),
   component: OpenProject,
@@ -18,7 +17,7 @@ export const Route = createFileRoute('/new')({
 type Empty = Extract<OpenResult, { status: 'empty' }>
 
 function OpenProject() {
-  const { projects, home, signIn } = Route.useLoaderData()
+  const { projects, home, setup } = Route.useLoaderData()
   const navigate = useNavigate()
   const [folder, setFolder] = useState<string>(home)
   const [busy, setBusy] = useState(false)
@@ -62,7 +61,14 @@ function OpenProject() {
       <PageHeader back={projects.length > 0} />
 
       <main className="mx-auto flex w-full max-w-[620px] flex-col gap-6 px-6 pt-24 pb-16 max-sm:pt-12">
-        <Connect initial={signIn} />
+        {setup && !setup.done && (
+          <Link
+            to="/setup"
+            className="self-start rounded-[10px] border border-line bg-surface px-3 py-2 text-[13px] font-medium hover:border-ink"
+          >
+            Finish setting up this machine →
+          </Link>
+        )}
 
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-[-0.015em]">

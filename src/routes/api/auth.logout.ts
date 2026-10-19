@@ -6,10 +6,7 @@ import { redirect } from '#/server/request'
 export const Route = createFileRoute('/api/auth/logout')({
   server: {
     handlers: {
-      POST: () => {
-        const domain = cloudDomain()
-        return redirect('/login', domain ? { 'set-cookie': sessionCookie(domain, null) } : {})
-      },
+      POST: () => redirect('/login', { 'set-cookie': sessionCookie(cloudDomain(), null) }),
     },
   },
 })

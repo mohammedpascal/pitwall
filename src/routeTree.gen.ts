@@ -12,9 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ApiBootRouteImport } from './routes/api/boot'
+import { Route as LoginTokenRouteImport } from './routes/login.$token'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
-import { Route as ApiAuthLoginRouteImport } from './routes/api/auth.login'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth.logout'
 import { Route as ApiCaddyAskRouteImport } from './routes/api/caddy.ask'
 import { Route as AttachmentsTaskIdFileRouteImport } from './routes/attachments.$taskId.$file'
@@ -34,19 +35,24 @@ const NewRoute = NewRouteImport.update({
   path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiBootRoute = ApiBootRouteImport.update({
   id: '/api/boot',
   path: '/api/boot',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginTokenRoute = LoginTokenRouteImport.update({
+  id: '/$token',
+  path: '/$token',
+  getParentRoute: () => LoginRoute,
+} as any)
 const PProjectIdRoute = PProjectIdRouteImport.update({
   id: '/p/$projectId',
   path: '/p/$projectId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
-  id: '/api/auth/login',
-  path: '/api/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
@@ -67,22 +73,24 @@ const AttachmentsTaskIdFileRoute = AttachmentsTaskIdFileRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/new': typeof NewRoute
+  '/setup': typeof SetupRoute
   '/api/boot': typeof ApiBootRoute
+  '/login/$token': typeof LoginTokenRoute
   '/p/$projectId': typeof PProjectIdRoute
-  '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/caddy/ask': typeof ApiCaddyAskRoute
   '/attachments/$taskId/$file': typeof AttachmentsTaskIdFileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/new': typeof NewRoute
+  '/setup': typeof SetupRoute
   '/api/boot': typeof ApiBootRoute
+  '/login/$token': typeof LoginTokenRoute
   '/p/$projectId': typeof PProjectIdRoute
-  '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/caddy/ask': typeof ApiCaddyAskRoute
   '/attachments/$taskId/$file': typeof AttachmentsTaskIdFileRoute
@@ -90,11 +98,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/new': typeof NewRoute
+  '/setup': typeof SetupRoute
   '/api/boot': typeof ApiBootRoute
+  '/login/$token': typeof LoginTokenRoute
   '/p/$projectId': typeof PProjectIdRoute
-  '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/caddy/ask': typeof ApiCaddyAskRoute
   '/attachments/$taskId/$file': typeof AttachmentsTaskIdFileRoute
@@ -105,9 +114,10 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/new'
+    | '/setup'
     | '/api/boot'
+    | '/login/$token'
     | '/p/$projectId'
-    | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/caddy/ask'
     | '/attachments/$taskId/$file'
@@ -116,9 +126,10 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/new'
+    | '/setup'
     | '/api/boot'
+    | '/login/$token'
     | '/p/$projectId'
-    | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/caddy/ask'
     | '/attachments/$taskId/$file'
@@ -127,9 +138,10 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/new'
+    | '/setup'
     | '/api/boot'
+    | '/login/$token'
     | '/p/$projectId'
-    | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/caddy/ask'
     | '/attachments/$taskId/$file'
@@ -137,11 +149,11 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  LoginRoute: typeof LoginRoute
+  LoginRoute: typeof LoginRouteWithChildren
   NewRoute: typeof NewRoute
+  SetupRoute: typeof SetupRoute
   ApiBootRoute: typeof ApiBootRoute
   PProjectIdRoute: typeof PProjectIdRoute
-  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiCaddyAskRoute: typeof ApiCaddyAskRoute
   AttachmentsTaskIdFileRoute: typeof AttachmentsTaskIdFileRoute
@@ -170,6 +182,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/boot': {
       id: '/api/boot'
       path: '/api/boot'
@@ -177,18 +196,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBootRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login/$token': {
+      id: '/login/$token'
+      path: '/$token'
+      fullPath: '/login/$token'
+      preLoaderRoute: typeof LoginTokenRouteImport
+      parentRoute: typeof LoginRoute
+    }
     '/p/$projectId': {
       id: '/p/$projectId'
       path: '/p/$projectId'
       fullPath: '/p/$projectId'
       preLoaderRoute: typeof PProjectIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/login': {
-      id: '/api/auth/login'
-      path: '/api/auth/login'
-      fullPath: '/api/auth/login'
-      preLoaderRoute: typeof ApiAuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/logout': {
@@ -215,13 +234,23 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface LoginRouteChildren {
+  LoginTokenRoute: typeof LoginTokenRoute
+}
+
+const LoginRouteChildren: LoginRouteChildren = {
+  LoginTokenRoute: LoginTokenRoute,
+}
+
+const LoginRouteWithChildren = LoginRoute._addFileChildren(LoginRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  LoginRoute: LoginRoute,
+  LoginRoute: LoginRouteWithChildren,
   NewRoute: NewRoute,
+  SetupRoute: SetupRoute,
   ApiBootRoute: ApiBootRoute,
   PProjectIdRoute: PProjectIdRoute,
-  ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiCaddyAskRoute: ApiCaddyAskRoute,
   AttachmentsTaskIdFileRoute: AttachmentsTaskIdFileRoute,

@@ -8,7 +8,7 @@ export type { ProjectConfig, ServiceConfig }
 const ROOT = process.cwd()
 const FILE = path.join(ROOT, 'pitwall.config.json')
 
-type RawConfig = { projects?: ProjectConfig[]; domain?: string } & Record<string, unknown>
+type RawConfig = { projects?: ProjectConfig[]; domain?: string; setupSeen?: boolean } & Record<string, unknown>
 
 export function expand(p: string, base: string = ROOT) {
   if (p === '~' || p.startsWith('~/')) return path.resolve(os.homedir(), p.slice(2))
@@ -45,6 +45,22 @@ function edit(fn: (projects: ProjectConfig[]) => ProjectConfig[]) {
 export function configuredDomain(): string | null {
   const d = (process.env.PITWALL_DOMAIN ?? readRaw().domain ?? '').trim().toLowerCase().replace(/^\.+|\.+$/g, '')
   return d || null
+}
+
+/** A cloud machine, with or without a dev domain yet: the installer sets PITWALL_CLOUD. */
+export const isCloud = () => process.env.PITWALL_CLOUD === '1' || !!configuredDomain()
+
+/** The server's public address, which Pitwall answers on until it has a domain. */
+export const publicIp = () => process.env.PITWALL_IP?.trim() || null
+
+export function setDomain(domain: string) {
+  writeRaw({ ...readRaw(), domain })
+}
+
+export const setupSeen = () => readRaw().setupSeen === true
+
+export function markSetupSeen() {
+  writeRaw({ ...readRaw(), setupSeen: true })
 }
 
 /** Read on every call so edits to the config show up without a restart. */
