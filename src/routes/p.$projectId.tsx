@@ -244,8 +244,11 @@ function Workspace() {
       <div className="flex min-w-0 flex-1 flex-wrap">
         <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-6 px-8 pt-5 pb-10 max-sm:px-4">
           <ProjectStrip projects={projects} current={projectId} cloud={state.cloud} />
-          <header className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* The strip's active chip names the project; this line says where it lives and what you can do. */}
+          <h1 className="sr-only">{state.name}</h1>
+          <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {/* Too narrow for both: the buttons drop to their own row rather than cover this. */}
+            <div className="flex min-w-[260px] flex-1 items-center gap-x-2 overflow-hidden text-xs text-ink-soft">
               {editing === 'name' ? (
                 <InlineName
                   value={state.name}
@@ -255,10 +258,7 @@ function Workspace() {
                     await run('__info', () => updateProjectInfo({ data: { projectId, name } }))
                   }}
                 />
-              ) : (
-                <h1 className="truncate text-3xl font-semibold tracking-[-0.015em]">{state.name}</h1>
-              )}
-              {editing === 'folder' ? (
+              ) : editing === 'folder' ? (
                 <InlineFolder
                   value={state.path}
                   onCancel={() => setEditing(null)}
@@ -270,30 +270,26 @@ function Workspace() {
                   }}
                 />
               ) : (
-                // Where it lives and, for git, where the branch stands: one line.
-                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
-                  <span className="min-w-0 truncate font-mono">{state.path}</span>
+                <>
+                  {/* The path gives way first; what there is to sync matters more. */}
+                  <span className="min-w-[8ch] shrink-[100] truncate font-mono" title={state.path}>
+                    {state.path}
+                  </span>
                   {state.git && (
                     <>
-                      <span aria-hidden="true">·</span>
-                      <GitLine
-                        git={state.git}
-                        busy={!!busy.__sync}
-                        onSync={() =>
-                          void run('__sync', async () => {
-                            const r = await syncProject({ data: { projectId } })
-                            showToast(syncResult(r))
-                          })
-                        }
-                      />
+                      <span aria-hidden="true" className="flex-none">
+                        ·
+                      </span>
+                      <GitFacts git={state.git} />
                     </>
                   )}
-                </div>
+                </>
               )}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="ml-auto flex flex-none items-center gap-1.5">
               <Menu
                 label="Project options"
+                size="sm"
                 items={[
                   ...(anyUp && !allUp
                     ? [{ label: 'Stop all', onSelect: () => void run('__all', () => stopAll({ data: { projectId } })) }]
@@ -303,15 +299,27 @@ function Workspace() {
                   { label: 'Remove project', onSelect: () => void removeThisProject(), danger: true },
                 ]}
               />
+              {state.git && (
+                <SyncButton
+                  git={state.git}
+                  busy={!!busy.__sync}
+                  onSync={() =>
+                    void run('__sync', async () => {
+                      const r = await syncProject({ data: { projectId } })
+                      showToast(syncResult(r))
+                    })
+                  }
+                />
+              )}
               {state.services.length > 0 &&
                 (allUp ? (
                   <button
                     type="button"
                     onClick={() => void run('__all', () => stopAll({ data: { projectId } }))}
                     disabled={busy.__all}
-                    className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-line bg-surface px-4 font-medium hover:bg-line-soft disabled:opacity-50"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft disabled:opacity-50"
                   >
-                    <StopIcon size={13} />
+                    <StopIcon size={11} />
                     Stop all
                   </button>
                 ) : (
@@ -319,9 +327,9 @@ function Workspace() {
                     type="button"
                     onClick={() => void run('__all', () => startAll({ data: { projectId } }))}
                     disabled={busy.__all}
-                    className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-ink px-4 font-medium text-white hover:bg-ink/85 disabled:opacity-50"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-[13px] font-medium whitespace-nowrap text-white hover:bg-ink/85 disabled:opacity-50"
                   >
-                    <PlayIcon size={14} />
+                    <PlayIcon size={12} />
                     Start all
                   </button>
                 ))}
@@ -458,10 +466,8 @@ function syncResult(r: SyncResult) {
   return parts.length ? `${parts.join(' and ')}.`.replace(/^p/, 'P') : 'Already up to date.'
 }
 
-/** The branch, what there is to sync, and the one button that does it (Push, Pull or Sync). */
-function GitLine({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () => void }) {
-  const local = git.changed > 0 || git.ahead > 0 || !git.upstream
-  const label = local && git.behind ? 'Sync' : local ? 'Push' : git.behind ? 'Pull' : null
+/** Where the branch stands, as plain text: "⎇ main · 2 changed files · 3 new on GitHub". */
+function GitFacts({ git }: { git: Git }) {
   const facts = [
     git.changed ? plural(git.changed, 'changed file') : '',
     git.ahead ? `${git.ahead} to push` : '',
@@ -469,7 +475,8 @@ function GitLine({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () =>
     git.behind ? `${git.behind} new on GitHub` : '',
   ].filter(Boolean)
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+    // Shrinks only once the path beside it can't (a plain 1 would still lose a pixel to it).
+    <span className="inline-flex min-w-0 shrink-[0.001] items-center gap-x-2 whitespace-nowrap">
       <span className="inline-flex items-center gap-1 font-mono">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="6" cy="6" r="2.5" />
@@ -480,18 +487,25 @@ function GitLine({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () =>
         {git.branch ?? 'no branch'}
       </span>
       <span aria-hidden="true">·</span>
-      <span>{facts.length ? facts.join(' · ') : 'Up to date'}</span>
-      {label && git.branch && (
-        <button
-          type="button"
-          onClick={onSync}
-          disabled={busy}
-          className="ml-1 h-7 rounded-lg border border-line bg-surface px-2.5 font-medium text-ink hover:bg-line-soft disabled:opacity-50"
-        >
-          {busy ? `${label === 'Pull' ? 'Pulling' : label === 'Push' ? 'Pushing' : 'Syncing'}…` : label}
-        </button>
-      )}
-    </div>
+      <span className="truncate">{facts.length ? facts.join(' · ') : 'Up to date'}</span>
+    </span>
+  )
+}
+
+/** The one git button, named for what it will do: Push, Pull or Sync. Hidden when there's nothing to do. */
+function SyncButton({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () => void }) {
+  const local = git.changed > 0 || git.ahead > 0 || !git.upstream
+  const label = local && git.behind ? 'Sync' : local ? 'Push' : git.behind ? 'Pull' : null
+  if (!label || !git.branch) return null
+  return (
+    <button
+      type="button"
+      onClick={onSync}
+      disabled={busy}
+      className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft disabled:opacity-50"
+    >
+      {busy ? `${label === 'Pull' ? 'Pulling' : label === 'Push' ? 'Pushing' : 'Syncing'}…` : label}
+    </button>
   )
 }
 
@@ -524,7 +538,7 @@ function InlineName({
         else if (e.key === 'Escape') finish(false)
       }}
       onBlur={() => finish(true)}
-      className="-mx-2 h-11 max-w-[520px] rounded-lg border border-ink bg-surface px-2 text-3xl font-semibold tracking-[-0.015em] outline-none"
+      className="h-8 w-full max-w-[360px] rounded-lg border border-ink bg-surface px-2 text-sm font-semibold text-ink outline-none"
     />
   )
 }
@@ -555,7 +569,7 @@ function InlineFolder({
         }
       }}
       onKeyDown={(e) => e.key === 'Escape' && onCancel()}
-      className="mt-1 flex max-w-[640px] flex-col gap-1.5"
+      className="flex w-full max-w-[640px] flex-col gap-1.5 text-sm text-ink"
     >
       <label htmlFor="project-folder" className="sr-only">
         Project folder
