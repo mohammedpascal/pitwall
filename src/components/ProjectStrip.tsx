@@ -12,7 +12,7 @@ const describe = (p: ProjectSummary) =>
     .filter(Boolean)
     .join(' · ')
 
-/** Every project as a named chip above the page, like the service cards: one click switches. */
+/** Every project as a tab above the page: one click switches. */
 export function ProjectStrip({
   projects,
   current,
@@ -27,7 +27,7 @@ export function ProjectStrip({
   const sorted = projects.map((p, i) => ({ p, i })).sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i).map((x) => x.p)
   const strip = useRef<HTMLDivElement>(null)
   const signOut = useRef<HTMLFormElement>(null)
-  // Chips cut off at the edge; they're also in "+N more".
+  // Tabs cut off at the edge; they're also in "+N more".
   const [hidden, setHidden] = useState<string[]>([])
 
   const ids = sorted.map((p) => p.id).join('|')
@@ -69,10 +69,11 @@ export function ProjectStrip({
   }, [current, ids])
 
   const more = sorted.filter((p) => hidden.includes(p.id))
-  const chip = 'flex h-9 flex-none items-center gap-2 rounded-xl border-[1.5px] bg-surface px-3 text-[13px] font-semibold'
+  // Tabs on one rule: the project you're in is the bold one, underlined where it meets the page.
+  const tab = 'relative flex h-10 flex-none items-center gap-2 px-3 text-[14px]'
 
   return (
-    <nav aria-label="Projects" className="flex min-w-0 items-center gap-2">
+    <nav aria-label="Projects" className="flex min-w-0 items-center gap-2 border-b border-line">
       <div
         ref={strip}
         className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -88,7 +89,11 @@ export function ProjectStrip({
               aria-current={active ? 'page' : undefined}
               aria-label={`${p.name}, ${describe(p)}`}
               title={p.name}
-              className={`${chip} ${active ? 'border-ink' : 'border-line hover:border-ink-faint'}`}
+              className={`${tab} ${
+                active
+                  ? 'font-semibold text-ink after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-ink'
+                  : 'font-medium text-ink-soft hover:text-ink'
+              }`}
             >
               <span
                 aria-hidden="true"
@@ -114,7 +119,7 @@ export function ProjectStrip({
         <Menu
           label={`${more.length} more project${more.length === 1 ? '' : 's'}`}
           trigger={<span>+{more.length} more</span>}
-          triggerClassName={`${chip} border-line text-ink-soft hover:border-ink-faint hover:text-ink`}
+          triggerClassName={`${tab} font-medium text-ink-soft hover:text-ink`}
           items={more.map((p) => ({
             label: p.name,
             hint: describe(p),
@@ -126,7 +131,7 @@ export function ProjectStrip({
         to="/new"
         aria-label="Add project"
         title="Add project"
-        className="flex size-9 flex-none items-center justify-center rounded-xl border-[1.5px] border-dashed border-ink-faint text-ink-soft hover:border-ink hover:text-ink"
+        className="flex size-9 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
       >
         <PlusIcon />
       </Link>

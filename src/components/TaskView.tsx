@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import type { AttachmentUpload, TaskDetail, TaskStart } from '#/server/types'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { AttachmentUpload, LogLine, TaskDetail, TaskStart } from '#/server/types'
 import { AttachButton, AttachmentChips, useAttachments } from './Attachments'
 import { ago, clock } from '#/lib/format'
 import { read, write } from '#/lib/storage'
@@ -7,8 +7,8 @@ import { KIND, STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, ArrowUpIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
 import { MODE, ModePicker, useMode } from './ModePicker'
-import { ModelPicker, useModel } from './ModelPicker'
-import { MODELS, type ModelChoice } from '#/lib/models'
+import { ModelPicker } from './ModelPicker'
+import type { ModelChoice } from '#/lib/models'
 import { PlanFrame } from './PlanFrame'
 import { SkillSuggest, useSkillSuggest } from './SkillSuggest'
 import type { Skill } from '#/server/tools'
@@ -52,42 +52,31 @@ export function TaskView({
 }) {
   const { task: t, plan, log, parent, followUps, remote, asking } = detail
   // Folded away per task in this browser; a new version unfolds it, since it's new to read.
+  // Once the task is closed, what changed matters more, so the plan starts folded.
   const planKey = `pitwall:plan-hidden:${t.id}`
   const [planHidden, setPlanHidden] = useState(false)
   const versions = t.plans?.length ?? 0
+  const closed = isClosed(t)
   useEffect(() => {
     const seen = Number(read(`${planKey}:v`) ?? 0)
     if (versions > seen) {
       write(`${planKey}:v`, String(versions))
       write(planKey, '0')
     }
-    setPlanHidden(read(planKey) === '1')
-  }, [planKey, versions])
+    setPlanHidden(closed || read(planKey) === '1')
+  }, [planKey, versions, closed])
   function togglePlan(hide = !planHidden) {
     write(planKey, hide ? '1' : '0')
     setPlanHidden(hide)
   }
-  const [arrivedHidden, foldArrived] = useFolded(`pitwall:fold:arrived:${t.id}`, true)
-  const [detailHidden, foldDetail] = useFolded(`pitwall:fold:detail:${t.id}`, true)
-  const [changedHidden, foldChanged] = useFolded(`pitwall:fold:changed:${t.id}`, false)
-  const [followUpsHidden, foldFollowUps] = useFolded(`pitwall:fold:follow-ups:${t.id}`, false)
   const stage = STAGE[t.stage]
   const Icon = sourceIcon[t.source]
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
   const [followMode, setFollowMode] = useMode('pitwall.followMode', 'do')
-  const [remembered, remember] = useModel('pitwall.model')
-  // A follow-up starts on the model of the task it follows (if it had one) until you pick another.
-  const [picked, setPicked] = useState<{
-    task: string
-    model: ModelChoice
-  } | null>(null)
-  const followModel = picked?.task === t.id ? picked.model : (t.model ?? remembered)
-  const setFollowModel = (m: ModelChoice) => {
-    setPicked({ task: t.id, model: m })
-    remember(m)
-  }
+  // A follow-up runs on the task's model, picked in the header.
+  const followModel: ModelChoice = t.model ?? 'default'
   const plans = t.plans ?? []
   const latest = plans.at(-1)?.v ?? null
   const showing = version ?? latest
@@ -166,12 +155,7 @@ export function TaskView({
             ? {
                 // A new task that picks up this one's conversation.
                 placeholder: 'Follow up on this…',
-                picker: (
-                  <>
-                    <ModelPicker model={followModel} onPick={setFollowModel} />
-                    <ModePicker mode={followMode} onPick={setFollowMode} />
-                  </>
-                ),
+                picker: <ModePicker mode={followMode} onPick={setFollowMode} />,
                 attachable: true,
                 primary: {
                   label: MODE[followMode].button,
@@ -208,7 +192,9 @@ export function TaskView({
             },
           ]
         : []),
-    ...(!isClosed(t) ? [{ label: 'Mark done', onSelect: () => void send({ type: 'done' }) }] : []),
+    ...(!isClosed(t)
+      ? [{ label: 'Mark done', onSelect: () => void send({ type: 'done' }) }]
+      : [{ label: 'Reopen', onSelect: () => void send({ type: 'reopen' }) }]),
     ...(!stage.working
       ? [
           {
@@ -228,56 +214,61 @@ export function TaskView({
       : []),
   ]
 
-  return (
-    <section aria-labelledby="task-h" className="flex flex-grow flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="-ml-2 inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase hover:bg-line-soft hover:text-ink"
-        >
-          <span aria-hidden="true">←</span> Output
-        </button>
-      </div>
+  // The task's story, oldest first: what you asked, each plan, what changed, how it ended, each follow-up.
+  const [outputShown, setOutputShown] = useState<Record<string, boolean>>({})
+  useEffect(() => setOutputShown({}), [t.id])
+  const working = !!stage.working
+  const changedAt = t.changedFiles?.length ? (t.fixedAt ?? (plans.at(-1)?.at ?? t.createdAt) + 1) : null
+  const steps = [
+    ...plans.map((p) => ({ key: `plan-${p.v}`, at: p.at })),
+    ...(changedAt ? [{ key: 'changed', at: changedAt }] : []),
+  ].sort((a, b) => a.at - b.at)
+  // Each line of output belongs to the step it led to; what comes after the last step is the work going on now.
+  const outputOf: Record<string, LogLine[]> = {}
+  for (const l of log) {
+    const key = steps.find((st) => st.at >= l.t)?.key ?? (working ? 'working' : (steps.at(-1)?.key ?? 'asked'))
+    ;(outputOf[key] ??= []).push(l)
+  }
+  const hasOutput = (key: string) => !!outputOf[key]?.length || (key === 'asked' && !!t.detail)
+  const outputButton = (key: string) =>
+    hasOutput(key) && (
+      <button
+        type="button"
+        aria-expanded={!!outputShown[key]}
+        onClick={() => setOutputShown((o) => ({ ...o, [key]: !o[key] }))}
+        className="h-8 rounded-lg px-2.5 text-[12.5px] font-medium text-ink-soft hover:bg-line-soft hover:text-ink"
+      >
+        {outputShown[key] ? 'Hide output' : 'Output'}
+      </button>
+    )
+  const output = (key: string) =>
+    outputShown[key] && (
+      <>
+        {key === 'asked' && t.detail && (
+          <pre className="max-h-48 overflow-auto rounded-[10px] border border-line-soft bg-bg/60 px-3.5 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+            {t.detail}
+          </pre>
+        )}
+        {outputOf[key]?.length ? <LogBox lines={outputOf[key]} /> : null}
+      </>
+    )
+  const lastStep = steps.at(-1)?.at ?? t.createdAt
 
-      <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
-        <header className="flex flex-col gap-3 border-b border-line p-5">
-          <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
-            <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-              {t.kind && (
-                <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">
-                  {KIND[t.kind]}
-                </span>
-              )}
-              <Icon />
-              {t.sourceLabel} · {ago(t.lastSeenAt ?? t.createdAt, now)} ·{' '}
-              {/* Which Claude does its next steps; change it here. */}
-              {isClosed(t) ? (
-                MODELS[t.model ?? 'default'].label
-              ) : (
-                <ModelPicker
-                  compact
-                  model={t.model ?? 'default'}
-                  onPick={(m) => void send({ type: 'model', model: m })}
-                />
-              )}
-              {(t.count ?? 1) > 1 && ` · ×${t.count}`}
-            </span>
-            {menu.length > 0 && <Menu label="Task options" size="sm" items={menu} />}
-          </div>
-          {parent && (
-            <button
-              type="button"
-              onClick={() => onOpenTask(parent.id)}
-              className="-mb-1 self-start truncate text-left text-xs text-ink-soft hover:text-ink hover:underline"
-            >
-              Follow-up to {parent.title}
-            </button>
+  const events: { key: string; at: number; node: ReactNode }[] = [
+    {
+      key: 'asked',
+      at: t.createdAt,
+      node: (
+        <Event
+          dot="you"
+          title={<span className="font-semibold">Asked</span>}
+          time={ago(t.createdAt, now)}
+          actions={outputButton('asked')}
+        >
+          {/* What you typed, when it differs from the title above. */}
+          {t.original && t.original !== t.title && (
+            <p className="max-w-[68ch] text-[13.5px] leading-relaxed break-words whitespace-pre-wrap">{t.original}</p>
           )}
-          <h2 id="task-h" className="text-xl leading-snug font-semibold tracking-[-0.01em] break-words">
-            {t.title}
-          </h2>
-          {t.summary && <p className="max-w-[68ch] text-[13.5px] leading-relaxed text-ink-soft">{t.summary}</p>}
           {t.attachments && t.attachments.length > 0 && (
             <ul aria-label="Attachments" className="flex flex-wrap gap-2">
               {t.attachments.map((a) => {
@@ -306,6 +297,212 @@ export function TaskView({
               })}
             </ul>
           )}
+          {output('asked')}
+        </Event>
+      ),
+    },
+    ...plans.flatMap((p) => {
+      const open = !planHidden && p.v === showing && plan?.v === p.v
+      const waiting = t.stage === 'planned' && p.v === latest
+      return [
+        ...(p.v > 1 && p.note
+          ? [
+              {
+                key: `ask-${p.v}`,
+                at: p.at - 1,
+                node: (
+                  <Event dot="you" title={<span className="font-semibold">Asked for changes</span>}>
+                    <p className="max-w-[68ch] text-[13.5px] leading-relaxed break-words whitespace-pre-wrap">
+                      {p.note}
+                    </p>
+                  </Event>
+                ),
+              },
+            ]
+          : []),
+        {
+          key: `plan-${p.v}`,
+          at: p.at,
+          node: (
+            <Event
+              dot={waiting ? 'wait' : 'step'}
+              title={
+                <>
+                  <span className="font-semibold">{p.v === 1 ? 'Planned' : 'Revised the plan'}</span>
+                  {plans.length > 1 && <span className="text-ink-soft"> · v{p.v}</span>}
+                  {waiting && ' · waiting for you'}
+                </>
+              }
+              time={ago(p.at, now)}
+              actions={
+                <>
+                  {outputButton(`plan-${p.v}`)}
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => {
+                      if (open) return togglePlan(true)
+                      onVersion(p.v === latest ? null : p.v)
+                      togglePlan(false)
+                    }}
+                    className={`h-8 rounded-lg px-3 text-[12.5px] font-medium ${
+                      open ? 'text-ink-soft hover:bg-line-soft hover:text-ink' : 'border border-line hover:bg-line-soft'
+                    }`}
+                  >
+                    {open ? 'Hide' : 'Show plan'}
+                  </button>
+                </>
+              }
+            >
+              {output(`plan-${p.v}`)}
+              {open && plan && (
+                <div className="overflow-hidden rounded-xl border border-line">
+                  <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />
+                </div>
+              )}
+            </Event>
+          ),
+        },
+      ]
+    }),
+    ...(changedAt && t.changedFiles
+      ? [
+          {
+            key: 'changed',
+            at: changedAt,
+            node: (
+              <Event
+                dot={t.stage === 'check' ? 'wait' : 'step'}
+                title={
+                  <>
+                    <span className="font-semibold">
+                      Changed {t.changedFiles.length} {t.changedFiles.length === 1 ? 'file' : 'files'}
+                    </span>
+                    {t.stage === 'check' && ' · waiting for you'}
+                  </>
+                }
+                time={ago(changedAt, now)}
+                actions={outputButton('changed')}
+              >
+                <ul className="flex flex-wrap gap-1.5">
+                  {t.changedFiles.map((f) => (
+                    <li
+                      key={f}
+                      className="rounded-lg border border-line-soft bg-bg/60 px-2.5 py-1 font-mono text-xs break-all"
+                    >
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                {output('changed')}
+              </Event>
+            ),
+          },
+        ]
+      : []),
+    ...(isClosed(t)
+      ? [
+          {
+            key: 'closed',
+            at: lastStep + 0.5,
+            node: (
+              <Event
+                dot={t.stage === 'done' ? 'ok' : 'muted'}
+                title={
+                  t.stage === 'done' ? (
+                    <span className="font-semibold text-ok">{t.closedReason ?? 'Done'}</span>
+                  ) : (
+                    <span className="font-semibold text-ink-soft">{t.closedReason ?? 'Dismissed'}</span>
+                  )
+                }
+              />
+            ),
+          },
+        ]
+      : []),
+    ...followUps.map((f) => ({
+      key: `follow-${f.id}`,
+      at: f.createdAt,
+      node: (
+        <Event dot="you" title={<span className="font-semibold">Followed up</span>} time={ago(f.createdAt, now)}>
+          <p className="max-w-[68ch] text-[13.5px] leading-relaxed break-words whitespace-pre-wrap">
+            {f.original ?? f.title}
+          </p>
+          <button
+            type="button"
+            onClick={() => onOpenTask(f.id)}
+            className="inline-flex min-h-8 items-center gap-2 self-start text-[12.5px] text-ink-soft hover:text-ink hover:underline"
+          >
+            <span
+              aria-hidden="true"
+              className={`size-[7px] rounded-full bg-ink-soft ${STAGE[f.stage].working ? 'animate-pulse' : ''}`}
+            />
+            {STAGE[f.stage].label} · Open →
+          </button>
+        </Event>
+      ),
+    })),
+    ...(working
+      ? [
+          {
+            key: 'working',
+            at: Infinity,
+            node: (
+              <Event dot="working" title={<span className="font-semibold">{stage.label}</span>}>
+                {outputOf.working?.length ? <LogBox lines={outputOf.working} /> : null}
+              </Event>
+            ),
+          },
+        ]
+      : []),
+  ].sort((a, b) => a.at - b.at)
+
+  return (
+    <section aria-labelledby="task-h" className="flex flex-grow flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="-ml-2 inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase hover:bg-line-soft hover:text-ink"
+        >
+          <span aria-hidden="true">←</span> Output
+        </button>
+      </div>
+
+      <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
+        <header className="flex flex-col gap-3 border-b border-line p-5">
+          <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+              {t.kind && (
+                <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">
+                  {KIND[t.kind]}
+                </span>
+              )}
+              <Icon />
+              {t.sourceLabel} · {ago(t.lastSeenAt ?? t.createdAt, now)} ·{' '}
+              {/* Which Claude does its next steps; change it here. */}
+              <ModelPicker
+                compact
+                model={t.model ?? 'default'}
+                onPick={(m) => void send({ type: 'model', model: m })}
+              />
+              {(t.count ?? 1) > 1 && ` · ×${t.count}`}
+            </span>
+            {menu.length > 0 && <Menu label="Task options" size="sm" items={menu} />}
+          </div>
+          {parent && (
+            <button
+              type="button"
+              onClick={() => onOpenTask(parent.id)}
+              className="-mb-1 self-start truncate text-left text-xs text-ink-soft hover:text-ink hover:underline"
+            >
+              Follow-up to {parent.title}
+            </button>
+          )}
+          <h2 id="task-h" className="text-xl leading-snug font-semibold tracking-[-0.01em] break-words">
+            {t.title}
+          </h2>
+          {t.summary && <p className="max-w-[68ch] text-[13.5px] leading-relaxed text-ink-soft">{t.summary}</p>}
         </header>
 
         {t.error && (
@@ -382,130 +579,14 @@ export function TaskView({
           </div>
         )}
 
-        {isClosed(t) && (
-          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3 text-[13px]">
-            <span className="text-ink-soft">{t.closedReason ?? stage.label}</span>
-            <button
-              type="button"
-              onClick={() => void send({ type: 'reopen' })}
-              className="h-9 rounded-lg border border-line px-3 font-medium hover:bg-line-soft"
-            >
-              Reopen
-            </button>
-          </div>
-        )}
-
-        {t.original && t.original !== t.title && (
-          <Section label="As it arrived" hidden={arrivedHidden} onToggle={foldArrived}>
-            <p className="max-w-[68ch] px-5 py-3 text-[13px] leading-relaxed whitespace-pre-wrap">{t.original}</p>
-          </Section>
-        )}
-
-        {t.detail && (
-          <Section label="Output" hidden={detailHidden} onToggle={foldDetail}>
-            <pre className="max-h-48 overflow-auto px-5 py-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
-              {t.detail}
-            </pre>
-          </Section>
-        )}
-
-        {plan && (
-          <Section
-            label={
-              <>
-                Plan v{plan.v}
-                {plans.find((p) => p.v === plan.v)?.note && (
-                  <span className="ml-2 font-normal text-ink-soft">“{plans.find((p) => p.v === plan.v)?.note}”</span>
-                )}
-              </>
-            }
-            extra={
-              plans.length > 1 && (
-                <span className="flex items-center gap-1" role="group" aria-label="Plan versions">
-                  {plans.map((p) => (
-                    <button
-                      key={p.v}
-                      type="button"
-                      aria-pressed={p.v === showing}
-                      onClick={(e) => {
-                        // Picks a version, and shows it if the plan was folded away.
-                        e.stopPropagation()
-                        onVersion(p.v === latest ? null : p.v)
-                        togglePlan(false)
-                      }}
-                      className={`h-7 min-w-7 rounded-md px-1.5 font-medium ${
-                        p.v === showing ? 'bg-ink text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-                      }`}
-                    >
-                      v{p.v}
-                    </button>
-                  ))}
-                </span>
-              )
-            }
-            hidden={planHidden}
-            onToggle={togglePlan}
-          >
-            <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />
-          </Section>
-        )}
-
-        {t.changedFiles && t.changedFiles.length > 0 && (
-          <Section
-            label={
-              <>
-                Changed
-                <span className="font-normal text-ink-soft">
-                  {' '}
-                  · {t.changedFiles.length} {t.changedFiles.length === 1 ? 'file' : 'files'}
-                </span>
-              </>
-            }
-            hidden={changedHidden}
-            onToggle={foldChanged}
-          >
-            <ul className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-3 font-mono text-xs">
-              {t.changedFiles.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
-          </Section>
-        )}
-
-        {followUps.length > 0 && (
-          <Section
-            label={
-              <>
-                Follow-ups <span className="font-normal text-ink-soft">· {followUps.length}</span>
-              </>
-            }
-            hidden={followUpsHidden}
-            onToggle={foldFollowUps}
-          >
-            {/* Each follow-up reads as a message, in order; it opens its own task. */}
-            <ul className="flex flex-col">
-              {followUps.map((f) => (
-                <li key={f.id} className="border-b border-line-soft last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => onOpenTask(f.id)}
-                    className="flex w-full flex-col gap-0.5 px-5 py-3 text-left hover:bg-line-soft/40"
-                  >
-                    <span className="flex items-baseline justify-between gap-2 text-xs text-ink-soft">
-                      <span className="truncate">
-                        {f.sourceLabel} · {ago(f.createdAt, now)}
-                      </span>
-                      <span className="flex-none">{STAGE[f.stage].label}</span>
-                    </span>
-                    <span className="max-w-[68ch] text-[13.5px] leading-relaxed break-words whitespace-pre-wrap">
-                      {f.original ?? f.title}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
+        <div className="relative border-b border-line px-5 py-2">
+          <span aria-hidden="true" className="absolute top-7 bottom-7 left-[31.5px] w-px bg-line" />
+          <ol aria-label="What happened" className="relative flex flex-col">
+            {events.map((e) => (
+              <Fragment key={e.key}>{e.node}</Fragment>
+            ))}
+          </ol>
+        </div>
 
         {step && (
           <form
@@ -613,75 +694,51 @@ export function TaskView({
             </div>
           </form>
         )}
-
-        {stage.working && (
-          <div className="flex items-center gap-2 border-b border-line px-5 py-3 text-[13px] text-ink-soft">
-            <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-ink" />
-            {stage.label}
-          </div>
-        )}
-
-        <ClaudeLog key={t.id} log={log} open={!!stage.working} />
       </div>
     </section>
   )
 }
 
-/** Folded or not, per task and section, remembered in this browser. */
-function useFolded(key: string, initial: boolean) {
-  const [hidden, setHidden] = useState(initial)
-  useEffect(() => {
-    const v = read(key)
-    setHidden(v === null ? initial : v === '1')
-  }, [key, initial])
-  function toggle(hide = !hidden) {
-    write(key, hide ? '1' : '0')
-    setHidden(hide)
-  }
-  return [hidden, toggle] as const
+/** How each moment is marked on the line: yours, a step of the work, done, waiting on you, closed, or going on now. */
+const DOT = {
+  you: 'bg-ink',
+  step: 'border-[1.5px] border-ink bg-surface',
+  ok: 'bg-ok',
+  wait: 'bg-warn',
+  muted: 'bg-ink-faint',
+  working: 'animate-pulse bg-ink-soft',
 }
 
-/** One part of the task: a strip that folds it away and back, then the same divider as the rest. */
-function Section({
-  label,
-  extra,
-  hidden,
-  onToggle,
+/** One moment in the task's story: a dot on the line, what happened, when, and what you can open. */
+function Event({
+  dot,
+  title,
+  time,
+  actions,
   children,
 }: {
-  label: React.ReactNode
-  /** Controls beside Show/Hide; their clicks shouldn't fold the section. */
-  extra?: React.ReactNode
-  hidden: boolean
-  onToggle: () => void
-  children: React.ReactNode
+  dot: keyof typeof DOT
+  title: ReactNode
+  time?: string
+  actions?: ReactNode
+  children?: ReactNode
 }) {
   return (
-    <div className="flex flex-col border-b border-line last:border-b-0">
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={!hidden}
-        onClick={() => onToggle()}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggle()
-          }
-        }}
-        className={`flex cursor-pointer items-center justify-between gap-2 bg-bg/60 px-4 py-2 text-xs hover:bg-line-soft/60 ${
-          hidden ? '' : 'border-b border-line-soft'
-        }`}
-      >
-        <span className="font-semibold">{label}</span>
-        <span className="flex items-center gap-1">
-          {extra}
-          <span className="ml-2 font-medium text-ink-soft">{hidden ? 'Show' : 'Hide'}</span>
-        </span>
+    <li className="flex gap-3.5 py-2.5">
+      <span aria-hidden="true" className="flex w-6 flex-none justify-center pt-[11px]">
+        <span className={`size-[9px] rounded-full ${DOT[dot]}`} />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 text-[13px]">
+          <span className="min-w-0">{title}</span>
+          <span className="flex items-center gap-1.5">
+            {actions}
+            {time && <span className="min-w-14 text-right text-xs text-ink-soft">{time}</span>}
+          </span>
+        </div>
+        {children}
       </div>
-      {!hidden && children}
-    </div>
+    </li>
   )
 }
 
@@ -692,34 +749,27 @@ const LEVEL = {
   err: 'text-err',
 }
 
-function ClaudeLog({ log, open }: { log: TaskDetail['log']; open: boolean }) {
+/** Claude's output for one step, kept scrolled to the newest line. */
+function LogBox({ lines }: { lines: LogLine[] }) {
   const box = useRef<HTMLDivElement>(null)
-  const last = log.at(-1)?.seq
-  // Shown while Claude works; otherwise folded until you ask for it.
-  const [hidden, setHidden] = useState(!open)
-  useEffect(() => {
-    if (open) setHidden(false)
-  }, [open])
+  const last = lines.at(-1)?.seq
   useEffect(() => {
     const el = box.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [last, hidden])
-  if (log.length === 0) return null
+  }, [last])
   return (
-    <Section label="Claude’s output" hidden={hidden} onToggle={() => setHidden((h) => !h)}>
-      <div
-        ref={box}
-        role="log"
-        aria-label="Claude’s output"
-        className="max-h-[320px] overflow-auto px-5 py-3 font-mono text-[12px] leading-[1.75]"
-      >
-        {log.map((l) => (
-          <div key={l.seq} className={`flex gap-3.5 whitespace-pre-wrap ${LEVEL[l.level]}`}>
-            <span className="flex-none text-ink-faint">{clock(l.t)}</span>
-            <span className="min-w-0 break-words">{l.text}</span>
-          </div>
-        ))}
-      </div>
-    </Section>
+    <div
+      ref={box}
+      role="log"
+      aria-label="Output"
+      className="max-h-[320px] overflow-auto rounded-[10px] border border-line-soft bg-bg/60 px-3.5 py-2.5 font-mono text-[11.5px] leading-[1.75]"
+    >
+      {lines.map((l) => (
+        <div key={l.seq} className={`flex gap-3.5 whitespace-pre-wrap ${LEVEL[l.level]}`}>
+          <span className="flex-none text-ink-soft">{clock(l.t)}</span>
+          <span className="min-w-0 break-words">{l.text}</span>
+        </div>
+      ))}
+    </div>
   )
 }

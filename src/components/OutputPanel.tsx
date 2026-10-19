@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { LogLine, ServiceView } from '#/server/types'
 import { clock } from '#/lib/format'
-import { AlertIcon } from './icons'
+import { AlertIcon, ExternalIcon } from './icons'
 import { QrCode } from './QrCode'
 import { WebPreview } from './WebPreview'
 
@@ -53,6 +53,25 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
             embeddable={service.preview.embeddable}
             ready={service.preview.ready ?? true}
           />
+        )}
+        {/* Not a web page or a phone app: say where it runs, since the card doesn't. */}
+        {service.url && !service.preview && !service.qr && (
+          <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-[13px]">
+            <span className="text-ink-soft">Runs at</span>
+            <code className="min-w-0 truncate font-mono text-xs select-all">
+              {service.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+            </code>
+            <a
+              href={service.url}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open ${service.name} in a new tab`}
+              title="Open in a new tab"
+              className="flex size-8 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+            >
+              <ExternalIcon size={14} />
+            </a>
+          </div>
         )}
         {service.qr && (
           <div className="flex flex-wrap items-center gap-5 border-b border-line p-4">

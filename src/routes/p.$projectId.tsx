@@ -362,10 +362,7 @@ function Workspace() {
             </div>
           </header>
 
-          <section aria-labelledby="svc-h" className="flex flex-col gap-3">
-            <h2 id="svc-h" className="text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase">
-              Services
-            </h2>
+          <section aria-label="Services" className="flex flex-col gap-3">
             {state.services.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-line p-6 text-center text-ink-soft">
                 {suggestions.length ? (
@@ -378,13 +375,12 @@ function Workspace() {
                 )}
               </p>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+              <div className="flex flex-wrap gap-2">
                 {state.services.map((s) => (
                   <ServiceCard
                     key={s.id}
                     service={s}
                     selected={s.id === current?.id}
-                    now={now}
                     onSelect={() => {
                       setSelected(s.id)
                       if (openTaskId) openTask(null)

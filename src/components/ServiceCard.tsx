@@ -1,8 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import type { ServiceStatus, ServiceView } from '#/server/types'
-import { duration } from '#/lib/format'
-import { ExternalIcon } from './icons'
 import { Menu } from './Menu'
 
 export const STATUS: Record<ServiceStatus, { dot: string; action: 'Start' | 'Stop' | 'Restart' }> = {
@@ -17,7 +15,6 @@ type Editing = 'name' | 'command' | null
 export function ServiceCard({
   service: s,
   selected,
-  now,
   onSelect,
   onToggle,
   onSave,
@@ -25,7 +22,6 @@ export function ServiceCard({
 }: {
   service: ServiceView
   selected: boolean
-  now: number
   onSelect: () => void
   onToggle: () => void
   onSave: (change: { name?: string; command?: string }) => Promise<void>
@@ -64,12 +60,22 @@ export function ServiceCard({
     }
   }
 
+  // One pill per service: whose output shows is the filled one.
+  const dots = (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  )
   return (
-    <div
-      onClick={onSelect}
-      className={`flex cursor-default flex-col gap-2 rounded-2xl border-[1.5px] bg-surface p-4 ${selected ? 'border-ink' : 'border-line hover:border-ink-faint'}`}
-    >
-      <div className="flex min-h-8 items-center justify-between gap-2">
+    <div className="relative">
+      <div
+        onClick={onSelect}
+        className={`flex h-9 cursor-default items-center gap-2 rounded-full border pr-1 pl-3 ${
+          selected ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink-faint'
+        }`}
+      >
         {editing === 'name' ? (
           <input
             aria-label="Service name"
@@ -78,7 +84,8 @@ export function ServiceCard({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={keys}
             onBlur={() => void commit()}
-            className="h-8 min-w-0 flex-1 rounded-lg border border-ink bg-surface px-2 text-base font-semibold outline-none"
+            onClick={(e) => e.stopPropagation()}
+            className="h-7 w-36 rounded-md border border-ink bg-surface px-2 text-[13px] font-semibold text-ink outline-none"
           />
         ) : (
           <button
@@ -87,15 +94,38 @@ export function ServiceCard({
             title={`$ ${s.command}`}
             aria-label={`Show ${s.name} output`}
             aria-pressed={selected}
-            className="flex min-w-0 items-center gap-2.5 text-base font-semibold"
+            className="flex min-w-0 items-center gap-2 text-[13px] font-semibold"
           >
             <span aria-hidden="true" className={`size-[9px] flex-none rounded-full ${look.dot}`} />
-            <span className="truncate">{s.name}</span>
+            <span className="max-w-[160px] truncate">{s.name}</span>
           </button>
+        )}
+        {s.qr ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelect()
+            }}
+            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <path d="M14 14h3v3M21 14v.01M14 21h7v-4" />
+            </svg>
+            Scan
+          </button>
+        ) : (
+          <StatusLine service={s} selected={selected} />
         )}
         <Menu
           label={`${s.name} options`}
-          size="sm"
+          trigger={dots}
+          triggerClassName={`flex size-7 items-center justify-center rounded-full ${
+            selected ? 'text-white/80 hover:bg-white/15 hover:text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+          }`}
           items={[
             { label: look.action, onSelect: onToggle },
             { label: 'Edit command', onSelect: () => edit('command') },
@@ -105,8 +135,11 @@ export function ServiceCard({
         />
       </div>
 
-      {editing === 'command' ? (
-        <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+      {editing === 'command' && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-full left-0 z-20 mt-2 flex w-[min(420px,90vw)] flex-col gap-2 rounded-xl border border-line bg-surface p-3 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+        >
           <input
             aria-label={`${s.name} command`}
             autoFocus
@@ -128,65 +161,26 @@ export function ServiceCard({
             </div>
           </div>
         </div>
-      ) : (
-        <div className="flex min-h-6 items-center">
-          {s.qr ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onSelect()
-              }}
-              className="inline-flex items-center gap-1.5 text-[13px] font-medium hover:underline"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-                <path d="M14 14h3v3M21 14v.01M14 21h7v-4" />
-              </svg>
-              Scan to open
-            </button>
-          ) : (
-            <StatusLine service={s} now={now} />
-          )}
-        </div>
       )}
     </div>
   )
 }
 
-function StatusLine({ service: s, now }: { service: ServiceView; now: number }) {
+/** Only what changes what you'd do: a running service needs no words, its dot says it. */
+function StatusLine({ service: s, selected }: { service: ServiceView; selected: boolean }) {
   if (s.status === 'running' && s.needsDomain) {
     return (
-      <Link to="/setup" onClick={(e) => e.stopPropagation()} className="text-[13px] font-medium text-ink-soft hover:text-ink hover:underline">
-        Add a dev domain to open it
+      <Link
+        to="/setup"
+        onClick={(e) => e.stopPropagation()}
+        className={`text-xs font-medium whitespace-nowrap hover:underline ${selected ? 'text-white/80' : 'text-ink-soft hover:text-ink'}`}
+      >
+        Add a dev domain
       </Link>
     )
   }
-  if (s.status === 'running' && s.url) {
-    return (
-      <a
-        href={s.url}
-        target="_blank"
-        rel="noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className="inline-flex min-w-0 items-center gap-1 truncate font-mono text-xs hover:underline"
-      >
-        <span className="truncate">{s.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
-        <ExternalIcon />
-      </a>
-    )
-  }
-  const text =
-    s.status === 'running'
-      ? s.startedAt
-        ? `Up ${duration(now - s.startedAt)}`
-        : 'Running'
-      : s.status === 'starting'
-        ? 'Starting…'
-        : s.status === 'error'
-          ? 'Crashed'
-          : 'Stopped'
-  return <span className={`text-[13px] ${s.status === 'error' ? 'font-medium text-err' : 'text-ink-soft'}`}>{text}</span>
+  if (s.status === 'running') return null
+  const text = s.status === 'starting' ? 'Starting…' : s.status === 'error' ? 'Crashed' : 'Stopped'
+  const tone = s.status === 'error' ? (selected ? 'font-medium text-white' : 'font-medium text-err') : selected ? 'text-white/80' : 'text-ink-soft'
+  return <span className={`text-xs whitespace-nowrap ${tone}`}>{text}</span>
 }
