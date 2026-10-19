@@ -4,6 +4,7 @@ import { ExternalIcon } from './icons'
 
 const hiddenKey = (id: string) => `pitwall:preview-hidden:${id}`
 const pathKey = (id: string) => `pitwall:preview-path:${id}`
+const heightKey = (id: string) => `pitwall:preview-height:${id}`
 
 /**
  * Turn what was typed into a URL, like a browser address bar:
@@ -51,6 +52,32 @@ export function WebPreview({
   const [editing, setEditing] = useState(false)
   const [invalid, setInvalid] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  const box = useRef<HTMLDivElement>(null)
+  // As tall as the window, until you drag it; then the height you chose, for this service.
+  const [height, setHeight] = useState<number | null>(null)
+
+  useEffect(() => {
+    const h = Number(read(heightKey(id)))
+    setHeight(h > 0 ? h : null)
+  }, [id])
+
+  // Only a drag on the edge sets an inline height, so that's what gets remembered.
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    let t: ReturnType<typeof setTimeout>
+    const watch = new ResizeObserver(() => {
+      const dragged = parseInt(el.style.height, 10)
+      if (!dragged) return
+      clearTimeout(t)
+      t = setTimeout(() => write(heightKey(id), String(dragged)), 300)
+    })
+    watch.observe(el)
+    return () => {
+      clearTimeout(t)
+      watch.disconnect()
+    }
+  }, [id, hidden, ready])
 
   // New service or new run: start from the app, on the last page you went to in it.
   useEffect(() => {
@@ -173,7 +200,10 @@ export function WebPreview({
         !hidden &&
         (!ready ? (
           // The frame would only show the browser's "connection reset" until the certificate exists.
-          <div className="flex h-[520px] min-h-[200px] flex-col items-center justify-center gap-2 bg-bg px-6 text-center">
+          <div
+            style={height ? { height } : undefined}
+            className="flex h-[calc(100dvh-7rem)] min-h-[360px] flex-col items-center justify-center gap-2 bg-bg px-6 text-center"
+          >
             <span className="inline-flex items-center gap-2 text-[15px] font-semibold">
               <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-warn" />
               Setting up HTTPS for {new URL(url).host}
@@ -183,8 +213,12 @@ export function WebPreview({
             </p>
           </div>
         ) : (
-          // Drag the bottom edge to make it taller or shorter.
-          <div className="h-[520px] min-h-[200px] resize-y overflow-hidden bg-white">
+          // A window tall, like a browser tab; drag the bottom edge to make it taller or shorter.
+          <div
+            ref={box}
+            style={height ? { height } : undefined}
+            className="h-[calc(100dvh-7rem)] min-h-[360px] resize-y overflow-hidden bg-white"
+          >
             <iframe
               key={reloads}
               src={current}
