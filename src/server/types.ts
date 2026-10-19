@@ -103,6 +103,8 @@ export interface Asking {
 export interface Task {
   /** Which Claude runs it; absent means Claude Code's default. */
   model?: ModelChoice
+  /** Started as "/name …": the skill Claude is asked to run. */
+  skill?: string
   id: string
   projectId: string
   title: string

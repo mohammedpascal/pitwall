@@ -6,6 +6,7 @@ import { ProjectStrip } from '#/components/ProjectStrip'
 import { ServiceCard, STATUS } from '#/components/ServiceCard'
 import { TaskSidebar } from '#/components/TaskSidebar'
 import { TaskView, type TaskCommand } from '#/components/TaskView'
+import { ToolsView } from '#/components/ToolsView'
 import { FolderInput } from '#/components/ui'
 import { errorMessage } from '#/lib/errors'
 import { PlayIcon, PlusIcon, StopIcon } from '#/components/icons'
@@ -22,6 +23,7 @@ import {
   getProjectState,
   getTaskDetail,
   getProjects,
+  getSkills,
   getSuggestions,
   ignoreSuggestion,
   planTask,
@@ -42,13 +44,18 @@ import {
   updateService,
 } from '#/server/fns'
 import type { DetectedService, ProjectState, Task, TaskDetail } from '#/server/types'
+import type { Skill } from '#/server/tools'
 
 const POLL_MS = 1000
 
 export const Route = createFileRoute('/p/$projectId')({
   // ?task=<id> opens that task in the main panel, so a task can be linked to.
-  validateSearch: (search: Record<string, unknown>): { task?: string } =>
-    typeof search.task === 'string' && search.task ? { task: search.task } : {},
+  validateSearch: (search: Record<string, unknown>): { task?: string; tools?: 1 } =>
+    typeof search.task === 'string' && search.task
+      ? { task: search.task }
+      : search.tools === 1 || search.tools === '1'
+        ? { tools: 1 }
+        : {},
   loader: async ({ params }) => {
     const [projects, state] = await Promise.all([
       getProjects(),
@@ -71,7 +78,7 @@ function pageTitle(name: string, projects: { needsYou: number }[]) {
 
 function Workspace() {
   const { projectId } = Route.useParams()
-  const { task: openTaskId } = Route.useSearch()
+  const { task: openTaskId, tools: toolsOpen } = Route.useSearch()
   const initial = Route.useLoaderData()
   const navigate = useNavigate()
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
@@ -103,6 +110,19 @@ function Workspace() {
     setTaskDetail(d)
     setNow(Date.now())
   }, [projectId, selected, openTaskId, planVersion])
+
+  // The project's and your skills, for the task boxes' "/" suggestions; once per project.
+  const [skills, setSkills] = useState<Skill[]>([])
+  useEffect(() => {
+    getSkills({ data: { projectId } })
+      .then(setSkills)
+      .catch(() => setSkills([]))
+  }, [projectId, toolsOpen])
+
+  function openTools(open: boolean) {
+    setTaskDetail(null)
+    void navigate({ to: '/p/$projectId', params: { projectId }, search: open ? { tools: 1 } : {}, replace: true })
+  }
 
   function openTask(id: string | null) {
     setPlanVersion(null)
@@ -294,6 +314,7 @@ function Workspace() {
                   ...(anyUp && !allUp
                     ? [{ label: 'Stop all', onSelect: () => void run('__all', () => stopAll({ data: { projectId } })) }]
                     : []),
+                  { label: 'Claude’s tools', onSelect: () => openTools(true) },
                   { label: 'Rename', onSelect: () => setEditing('name') },
                   { label: 'Change folder', onSelect: () => setEditing('folder') },
                   { label: 'Remove project', onSelect: () => void removeThisProject(), danger: true },
@@ -408,7 +429,22 @@ function Workspace() {
             )}
           </section>
 
-          {openTaskId && taskDetail?.task.id === openTaskId ? (
+          {toolsOpen ? (
+            <ToolsView
+              projectId={projectId}
+              onClose={() => openTools(false)}
+              onWriteSkill={async (what) => {
+                const task = await addTask({
+                  data: {
+                    projectId,
+                    how: 'do',
+                    title: `Write a skill for this project: ${what.trim()}\n\nCreate it as .claude/skills/<short-kebab-name>/SKILL.md, in the SKILL.md format: front matter with name and description (say when to use it), then clear instructions.`,
+                  },
+                })
+                openTask(task.id)
+              }}
+            />
+          ) : openTaskId && taskDetail?.task.id === openTaskId ? (
             <TaskView
               detail={taskDetail}
               now={now}
@@ -417,6 +453,7 @@ function Workspace() {
               onCommand={(c) => taskCommand(taskDetail.task, c)}
               onClose={() => openTask(null)}
               onOpenTask={(id) => openTask(id)}
+              skills={skills}
             />
           ) : (
             current && <OutputPanel service={current} logs={current.id === state.logService ? state.logs : []} />
@@ -425,6 +462,7 @@ function Workspace() {
 
         <TaskSidebar
           projectName={state.name}
+          skills={skills}
           tasks={state.tasks}
           now={now}
           onAdd={async (title, attachments, how, model) => {

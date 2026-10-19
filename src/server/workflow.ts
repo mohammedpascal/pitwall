@@ -56,7 +56,13 @@ function describe(task: Task) {
   const files = (task.attachments ?? []).map(
     (a) => `- ${path.join(attachmentDir(task.id), a.file)} (${a.name}, ${a.type})`,
   )
+  // "/name …" runs one of the project's or your skills: say so plainly, so Claude uses it.
+  const skill = task.skill
+    ? `The person invoked the skill /${task.skill}. Use the Skill tool to run it` +
+      (task.title.replace(/^\/\S+\s*/, '') ? ` with: ${task.title.replace(/^\/\S+\s*/, '')}` : '.')
+    : ''
   return [
+    skill,
     `Task: ${task.original ?? task.title}`,
     task.title !== task.original ? `Rewritten as: ${task.title}` : '',
     `From: ${task.sourceLabel}`,
@@ -305,6 +311,13 @@ Don't start or restart dev servers; Pitwall runs them. When you're done, reply w
 /** A new task goes as far as you asked: read it, read and plan it, or do it now. */
 export async function start(task: Task, how: TaskStart) {
   if (how === 'do') return doIt(task)
+  // A skill task says exactly what to run: rewording it would only lose the "/name".
+  if (task.skill) {
+    tasks.update(task.id, { stage: 'ready' })
+    const fresh = tasks.get(task.id)
+    if (how === 'plan' && fresh) await plan(fresh)
+    return
+  }
   await understand(task)
   const fresh = tasks.get(task.id)
   // Closed as noise or a duplicate: nothing to plan.

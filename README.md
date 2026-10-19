@@ -95,6 +95,21 @@ add it: **Default** (Claude Code's choice), Fable, Opus, Sonnet or Haiku. The
 picker remembers your last choice, follow-ups start on their task's model, and
 the model shown on an open task can be changed for its next steps.
 
+### Claude's tools
+
+Each project's **⋯ → Claude's tools** shows what Claude can use there: its MCP
+servers (this project's, the repo's `.mcp.json`, everyone's, your claude.ai
+connectors and plugins) with whether each connects, and its skills (the repo's
+`.claude/skills/` and your own `~/.claude/skills/`). Only names, hosts and
+statuses are shown, never commands, headers or keys. **Add a server** takes a
+URL or a command, plus headers or environment lines; it's added for this
+project on this machine only (Claude Code's local scope), so keys never end up
+in the repo. **Write a skill** asks Claude to write one as a task.
+
+Claude uses skills on its own when a task fits. To run one yourself, start a
+task with `/`: the box suggests skills as you type, and `/deploy staging`
+runs the deploy skill with "staging", without rewording the task.
+
 To carry on from a finished task, open it (it stays open after **Looks good**)
 and type in **Follow up on this…**: that starts a new task from a copy of its
 Claude conversation, so the context comes along. The two link to each other.

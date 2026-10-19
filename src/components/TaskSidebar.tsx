@@ -5,10 +5,13 @@ import { KIND, STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/l
 import { PaperclipIcon, PlusIcon, sourceIcon } from './icons'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker, useModel } from './ModelPicker'
+import { SkillSuggest, useSkillSuggest } from './SkillSuggest'
+import type { Skill } from '#/server/tools'
 import type { ModelChoice } from '#/lib/models'
 
 export function TaskSidebar({
   projectName,
+  skills = [],
   tasks,
   now,
   selected,
@@ -18,6 +21,8 @@ export function TaskSidebar({
   onReopen,
 }: {
   projectName: string
+  /** Offered when a task starts with "/". */
+  skills?: Skill[]
   tasks: Task[]
   now: number
   selected: string | null
@@ -60,7 +65,7 @@ export function TaskSidebar({
         ))}
       </div>
 
-      <AddTask projectName={projectName} onAdd={onAdd} />
+      <AddTask projectName={projectName} skills={skills} onAdd={onAdd} />
 
       {closed.length > 0 && (
         <details className="group mt-2 border-t border-line-soft pt-4">
@@ -196,15 +201,18 @@ const kb = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024)
 
 function AddTask({
   projectName,
+  skills,
   onAdd,
 }: {
   projectName: string
+  skills: Skill[]
   onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart, model: ModelChoice) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useMode('pitwall.addMode', 'read')
   const [model, setModel] = useModel('pitwall.model')
   const [draft, setDraft] = useState('')
+  const suggest = useSkillSuggest(draft, skills, setDraft)
   const [files, setFiles] = useState<Picked[]>([])
   const [saving, setSaving] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -319,6 +327,8 @@ function AddTask({
           }
         }}
         onKeyDown={(e) => {
+          // Typing "/" offers skills; picking one comes before adding the task.
+          if (suggest.onKeyDown(e)) return
           // Enter adds it, like a chat box; Shift+Enter starts a new line.
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
@@ -330,6 +340,7 @@ function AddTask({
         placeholder={dragging ? 'Drop to attach' : `What needs doing in ${projectName}?`}
         className="resize-y bg-transparent text-sm leading-normal outline-none placeholder:text-ink-faint"
       />
+      <SkillSuggest {...suggest} />
 
       {files.length > 0 && (
         <ul aria-label="Attachments" className="flex flex-wrap gap-2">

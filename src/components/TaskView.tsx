@@ -9,6 +9,8 @@ import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker, useModel } from './ModelPicker'
 import { MODELS, type ModelChoice } from '#/lib/models'
 import { PlanFrame } from './PlanFrame'
+import { SkillSuggest, useSkillSuggest } from './SkillSuggest'
+import type { Skill } from '#/server/tools'
 import { QrCode } from './QrCode'
 
 export type TaskCommand =
@@ -34,6 +36,7 @@ export function TaskView({
   onCommand,
   onClose,
   onOpenTask,
+  skills = [],
 }: {
   detail: TaskDetail
   now: number
@@ -43,6 +46,8 @@ export function TaskView({
   onCommand: (c: TaskCommand) => Promise<void>
   onClose: () => void
   onOpenTask: (id: string) => void
+  /** Offered in the follow-up box when it starts with "/". */
+  skills?: Skill[]
 }) {
   const { task: t, plan, log, parent, followUps, remote, asking } = detail
   // Folded away per task in this browser; a new version unfolds it, since it's new to read.
@@ -93,6 +98,7 @@ export function TaskView({
   }
 
   const note = draft.trim()
+  const suggest = useSkillSuggest(draft, isClosed(t) ? skills : [], setDraft)
   // The text box and buttons change with the stage; there's always one primary action.
   type Action = { label: string; run: () => Promise<void>; needsText?: boolean }
   const planIt: Action = { label: 'Plan', run: () => send({ type: 'plan', note }) }
@@ -440,6 +446,8 @@ export function TaskView({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
+                // A follow-up can start with "/" to run a skill.
+                if (suggest.onKeyDown(e)) return
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
                   e.currentTarget.form?.requestSubmit()
@@ -448,6 +456,7 @@ export function TaskView({
               placeholder={step.placeholder}
               className="resize-y rounded-[10px] border border-line bg-surface px-3 py-2.5 text-sm leading-normal outline-none placeholder:text-ink-faint focus:border-ink"
             />
+            <SkillSuggest {...suggest} />
             <div className="flex items-center justify-end gap-1.5">
               {'picker' in step && step.picker}
               {step.secondary && (

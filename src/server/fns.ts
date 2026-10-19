@@ -38,6 +38,7 @@ import * as agent from './agent'
 import * as remote from './remote'
 import * as signin from './signin'
 import * as git from './git'
+import * as tools from './tools'
 import * as workflow from './workflow'
 import { readPlan } from './workflow'
 import type {
@@ -592,7 +593,7 @@ export const addTask = createServerFn({ method: 'POST' })
     // Files alone are enough: a screenshot often says it all.
     const title = data.title.trim() || (uploads.length ? `See ${uploads.map((u) => u.name).join(', ')}` : '')
     if (!title) throw new Error('A task needs a description')
-    requireProject(data.projectId)
+    const project = requireProject(data.projectId)
     const id = crypto.randomUUID()
     const attachments = attachmentStore.save(id, uploads)
     const task = tasks.add(
@@ -604,6 +605,7 @@ export const addTask = createServerFn({ method: 'POST' })
         sourceLabel: 'You',
         ...(attachments.length ? { attachments } : {}),
         ...(isModel(data.model) && data.model !== 'default' ? { model: data.model } : {}),
+        ...skillOf(title, project.path),
       },
       { understand: false },
     )
@@ -679,6 +681,37 @@ export const confirmTask = createServerFn({ method: 'POST' })
     void workflow.plan(task, `It was done, but it isn't right yet: ${data.note?.trim() || 'look again'}`)
   })
 
+/** "/name …" names a skill when this project or you have one called that. */
+function skillOf(text: string, dir: string) {
+  const name = /^\/([\w.:-]+)(\s|$)/.exec(text.trim())?.[1]
+  return name && tools.skills(dir).some((s) => s.name === name) ? { skill: name } : {}
+}
+
+/** What Claude can use in this project: MCP servers (names, hosts and status only) and skills. */
+export const getTools = createServerFn({ method: 'GET' })
+  .validator((d: { projectId: string; fresh?: boolean }) => d)
+  .handler(async ({ data }) => {
+    const project = requireProject(data.projectId)
+    return { servers: await tools.mcpServers(project.path, data.fresh), skills: tools.skills(project.path) }
+  })
+
+/** Just the skills, for the task box's suggestions: cheap, files only. */
+export const getSkills = createServerFn({ method: 'GET' })
+  .validator((d: { projectId: string }) => d)
+  .handler(async ({ data }) => tools.skills(requireProject(data.projectId).path))
+
+export const addMcpServer = createServerFn({ method: 'POST' })
+  .validator((d: { projectId: string; name: string; target: string; headers: string[]; env: string[] }) => d)
+  .handler(async ({ data }) => {
+    await tools.addServer(requireProject(data.projectId).path, data)
+  })
+
+export const removeMcpServer = createServerFn({ method: 'POST' })
+  .validator((d: { projectId: string; name: string }) => d)
+  .handler(async ({ data }) => {
+    await tools.removeServer(requireProject(data.projectId).path, data.name)
+  })
+
 /** Which Claude does this task's next steps. */
 export const setTaskModel = createServerFn({ method: 'POST' })
   .validator((d: { id: string; model: ModelChoice }) => d)
@@ -703,6 +736,7 @@ export const followUpTask = createServerFn({ method: 'POST' })
         sourceLabel: 'Follow-up',
         parentId: parent.id,
         ...(parent.sessionId ? { sessionId: parent.sessionId } : {}),
+        ...skillOf(title, requireProject(parent.projectId).path),
         // Picked in the follow-up box, else carried on from the task it follows.
         ...(() => {
           const model = isModel(data.model) ? data.model : parent.model
