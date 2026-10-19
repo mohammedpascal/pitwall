@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AttachmentUpload, Task, TaskStart } from '#/server/types'
 import { ago } from '#/lib/format'
 import { KIND, STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/lib/stages'
-import { PaperclipIcon, PlusIcon, sourceIcon } from './icons'
+import { ArrowUpIcon, PaperclipIcon, PlusIcon, sourceIcon } from './icons'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker, useModel } from './ModelPicker'
 import { SkillSuggest, useSkillSuggest } from './SkillSuggest'
@@ -40,7 +40,7 @@ export function TaskSidebar({
   return (
     <aside
       aria-labelledby="tasks-h"
-      className="flex max-w-full flex-[1_1_340px] flex-col gap-4 border-l border-line bg-surface px-[22px] py-7"
+      className="flex max-w-full flex-[1_1_400px] flex-col gap-4 border-l border-line bg-surface px-[22px] py-7"
     >
       <h2 id="tasks-h" className="flex items-baseline gap-2 text-lg font-semibold">
         Needs you
@@ -391,25 +391,22 @@ function AddTask({
           onClick={() => picker.current?.click()}
           aria-label="Attach files"
           title="Attach files, or paste or drop them here"
-          className="flex size-9 items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+          className="flex size-9 items-center justify-center rounded-full border border-line text-ink-soft hover:bg-line-soft hover:text-ink"
         >
-          <PaperclipIcon />
+          <PlusIcon size={16} />
         </button>
-        {/* How it runs on the left, the decision on the right; they wrap apart when narrow. */}
-        <span className="mr-auto flex items-center gap-1.5">
+        {/* How it runs and the send button sit together on the right, like a chat box. */}
+        <span className="ml-auto flex items-center gap-1.5">
           <ModelPicker model={model} onPick={setModel} />
           <ModePicker mode={mode} onPick={setMode} />
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <button type="button" onClick={reset} className="h-9 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft">
-            Cancel
-          </button>
           <button
             type="submit"
             disabled={(!draft.trim() && !files.length) || saving}
-            className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium whitespace-nowrap text-white hover:bg-ink/85 disabled:opacity-40"
+            aria-label={saving ? 'Adding…' : MODE[mode].button}
+            title={MODE[mode].button}
+            className="flex size-9 items-center justify-center rounded-full bg-ink text-white hover:bg-ink/85 disabled:opacity-40"
           >
-            {saving ? 'Adding…' : MODE[mode].button}
+            <ArrowUpIcon className={saving ? 'animate-pulse' : undefined} />
           </button>
         </span>
       </div>

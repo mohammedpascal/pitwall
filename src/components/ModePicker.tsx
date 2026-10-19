@@ -4,9 +4,9 @@ import { Menu } from './Menu'
 
 /** How far a new task goes: the picker's label, the button it sets, and what it means. */
 export const MODE: Record<TaskStart, { label: string; button: string; hint: string }> = {
-  read: { label: 'Normal', button: 'Add', hint: 'Read it, then wait for you' },
-  plan: { label: 'Plan', button: 'Plan', hint: 'Read it and plan it' },
-  do: { label: 'Do it', button: 'Do it', hint: 'Make the change now' },
+  read: { label: 'Clarify', button: 'Add', hint: 'Read it, then wait for you' },
+  plan: { label: 'Plan', button: 'Plan', hint: 'Plan it straight away' },
+  do: { label: 'Build', button: 'Build', hint: 'Make the change now' },
 }
 
 const MODES = Object.keys(MODE) as TaskStart[]

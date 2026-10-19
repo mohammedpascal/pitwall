@@ -266,9 +266,12 @@ function Workspace() {
           <ProjectStrip projects={projects} current={projectId} cloud={state.cloud} />
           {/* The strip's active chip names the project; this line says where it lives and what you can do. */}
           <h1 className="sr-only">{state.name}</h1>
-          <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            {/* Too narrow for both: the buttons drop to their own row rather than cover this. */}
-            <div className="flex min-w-[260px] flex-1 items-center gap-x-2 overflow-hidden text-xs text-ink-soft">
+          <header className="flex items-center gap-x-3 gap-y-2 max-sm:flex-wrap">
+            {/* The buttons follow this line, which only stretches while an inline edit needs the room.
+                On a phone the buttons drop to their own row rather than squeeze it. */}
+            <div
+              className={`flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-ink-soft max-sm:min-w-[260px] ${editing ? 'flex-1' : ''}`}
+            >
               {editing === 'name' ? (
                 <InlineName
                   value={state.name}
@@ -306,7 +309,7 @@ function Workspace() {
                 </>
               )}
             </div>
-            <div className="ml-auto flex flex-none items-center gap-1.5">
+            <div className="flex flex-none items-center gap-1.5">
               <Menu
                 label="Project options"
                 size="sm"

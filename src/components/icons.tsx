@@ -63,7 +63,14 @@ export const PlusIcon = ({ size = 18, className }: P) => (
   </svg>
 )
 
-export const ExternalIcon = ({ size = 12, className }: P) => (
+export const ArrowUpIcon = ({ size = 16, className }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} className={className} aria-hidden="true">
+    <line x1="12" y1="19" x2="12" y2="5" />
+    <path d="M5 12l7-7 7 7" />
+  </svg>
+)
+
+export const ExternalIcon =({ size = 12, className }: P) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} className={className} aria-hidden="true">
     <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
   </svg>

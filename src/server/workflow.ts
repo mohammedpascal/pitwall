@@ -180,6 +180,18 @@ const PLAN_SCHEMA = {
   required: ['html'],
 }
 
+/** A task planned without being read first also gets its title, summary and kind from the plan. */
+const PLAN_UNREAD_SCHEMA = {
+  type: 'object',
+  properties: {
+    ...PLAN_SCHEMA.properties,
+    title: UNDERSTAND_SCHEMA.properties.title,
+    summary: UNDERSTAND_SCHEMA.properties.summary,
+    kind: UNDERSTAND_SCHEMA.properties.kind,
+  },
+  required: ['html', 'title', 'summary', 'kind'],
+}
+
 const PLAN_RULES = `Write the plan as one complete HTML page (inline CSS, no external files or scripts, no web fonts).
 Style: white background, black text, greys for secondary text, system sans-serif, generous spacing, 8–12px rounded corners, thin #e5e5e5 borders. Minimal, no colours except a quiet red for "before" problems and green for "after".
 Sections, in order:
@@ -199,13 +211,19 @@ export async function plan(task: Task, note?: string) {
   agent.note(task.id, v === 1 ? 'Planning…' : `Revising the plan (v${v})…`, 'ok')
 
   const ask = note?.trim()
+  // Plan mode skips reading, so the first plan also names it. A skill task keeps its "/name".
+  const unread = v === 1 && !task.summary && !task.skill
   const prompt =
     v === 1
       ? `Plan the work for this task in the project in this folder (${project.name}). Do not change anything yet.
 
 ${describe(task)}${task.summary ? `\n\nYour understanding so far: ${task.summary}` : ''}${ask ? `\n\nGuidance from the person: ${ask}` : ''}
 
-${PLAN_RULES}`
+${PLAN_RULES}${
+          unread
+            ? '\nAlso give a short title anyone on the team understands at a glance, a one-paragraph summary, and the kind: bug (something broken), change (something to add or alter) or question.'
+            : ''
+        }`
       : `Revise your plan (now version ${v}). Do not change anything yet.${ask ? `\n\nWhat should change: ${ask}` : ''}
 
 ${PLAN_RULES}`
@@ -217,14 +235,22 @@ ${PLAN_RULES}`
       prompt,
       ...session(task),
       mode: 'read',
-      schema: PLAN_SCHEMA,
+      schema: unread ? PLAN_UNREAD_SCHEMA : PLAN_SCHEMA,
       addDirs: readable(task),
     })
-    const html = (r.output as { html?: string } | null)?.html
+    const out = r.output as { html?: string; title?: string; summary?: string; kind?: TaskKind } | null
+    const html = out?.html
     if (!html?.trim()) throw new Error('Claude didn’t return a plan')
     fs.mkdirSync(path.dirname(planFile(task.id, v)), { recursive: true })
     fs.writeFileSync(planFile(task.id, v), html)
     tasks.update(task.id, (t) => ({
+      ...(unread
+        ? {
+            title: out?.title?.trim() || t.title,
+            summary: out?.summary?.trim() || t.summary,
+            kind: out?.kind ?? t.kind,
+          }
+        : {}),
       sessionId: r.sessionId,
       stage: 'planned',
       plans: [...(t.plans ?? []), { v, at: Date.now(), ...(ask ? { note: ask } : {}) }],
@@ -308,20 +334,18 @@ Don't start or restart dev servers; Pitwall runs them. When you're done, reply w
 
 // ── Start ───────────────────────────────────────────────────────────────────
 
-/** A new task goes as far as you asked: read it, read and plan it, or do it now. */
+/** A new task goes as far as you asked: read it, plan it straight away, or do it now. */
 export async function start(task: Task, how: TaskStart) {
   if (how === 'do') return doIt(task)
-  // A skill task says exactly what to run: rewording it would only lose the "/name".
-  if (task.skill) {
+  // Planning reads the code anyway, so it skips the separate read. A skill task says
+  // exactly what to run: rewording it would only lose the "/name".
+  if (how === 'plan' || task.skill) {
     tasks.update(task.id, { stage: 'ready' })
     const fresh = tasks.get(task.id)
     if (how === 'plan' && fresh) await plan(fresh)
     return
   }
   await understand(task)
-  const fresh = tasks.get(task.id)
-  // Closed as noise or a duplicate: nothing to plan.
-  if (how === 'plan' && fresh?.stage === 'ready') await plan(fresh)
 }
 
 // ── Closing by itself ───────────────────────────────────────────────────────
