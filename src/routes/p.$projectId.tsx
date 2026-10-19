@@ -36,6 +36,7 @@ import {
   stopAll,
   stopService,
   stopTask,
+  setTaskModel,
   syncProject,
   updateProjectInfo,
   updateService,
@@ -200,9 +201,10 @@ function Workspace() {
       else if (c.type === 'reopen') await reopenTask({ data: { id } })
       else if (c.type === 'remote') await remoteTask({ data: { id, on: c.on } })
       else if (c.type === 'answer') await answerTask({ data: { id, decision: c.decision } })
+      else if (c.type === 'model') await setTaskModel({ data: { id, model: c.model } })
       else if (c.type === 'follow') {
         // Open the new task, so you see it start.
-        const next = await followUpTask({ data: { id, title: c.note, how: c.how } })
+        const next = await followUpTask({ data: { id, title: c.note, how: c.how, model: c.model } })
         openTask(next)
       }
       else {
@@ -417,9 +419,9 @@ function Workspace() {
           projectName={state.name}
           tasks={state.tasks}
           now={now}
-          onAdd={async (title, attachments, how) => {
+          onAdd={async (title, attachments, how, model) => {
             try {
-              await addTask({ data: { projectId, title, attachments, how } })
+              await addTask({ data: { projectId, title, attachments, how, model } })
               return true
             } catch (e) {
               showToast(errorMessage(e))

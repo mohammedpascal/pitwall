@@ -32,6 +32,7 @@ import { scanFolder, slug, suggestFolders } from './scan'
 import { startLifecycle } from './lifecycle'
 import * as tasks from './tasks'
 import { STAGE } from '#/lib/stages'
+import { isModel, type ModelChoice } from '#/lib/models'
 import * as attachmentStore from './attachments'
 import * as agent from './agent'
 import * as remote from './remote'
@@ -583,7 +584,9 @@ export const restoreService = createServerFn({ method: 'POST' })
 // ── Tasks ───────────────────────────────────────────────────────────────────
 
 export const addTask = createServerFn({ method: 'POST' })
-  .validator((d: { projectId: string; title: string; attachments?: AttachmentUpload[]; how?: TaskStart }) => d)
+  .validator(
+    (d: { projectId: string; title: string; attachments?: AttachmentUpload[]; how?: TaskStart; model?: ModelChoice }) => d,
+  )
   .handler(async ({ data }) => {
     const uploads = data.attachments ?? []
     // Files alone are enough: a screenshot often says it all.
@@ -600,6 +603,7 @@ export const addTask = createServerFn({ method: 'POST' })
         source: 'manual',
         sourceLabel: 'You',
         ...(attachments.length ? { attachments } : {}),
+        ...(isModel(data.model) && data.model !== 'default' ? { model: data.model } : {}),
       },
       { understand: false },
     )
@@ -675,9 +679,18 @@ export const confirmTask = createServerFn({ method: 'POST' })
     void workflow.plan(task, `It was done, but it isn't right yet: ${data.note?.trim() || 'look again'}`)
   })
 
+/** Which Claude does this task's next steps. */
+export const setTaskModel = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; model: ModelChoice }) => d)
+  .handler(async ({ data }) => {
+    requireTask(data.id)
+    if (!isModel(data.model)) throw new Error('Unknown model')
+    tasks.update(data.id, { model: data.model === 'default' ? undefined : data.model })
+  })
+
 /** A new task that starts from a copy of this one's conversation. */
 export const followUpTask = createServerFn({ method: 'POST' })
-  .validator((d: { id: string; title: string; how?: TaskStart }) => d)
+  .validator((d: { id: string; title: string; how?: TaskStart; model?: ModelChoice }) => d)
   .handler(async ({ data }) => {
     const parent = requireTask(data.id)
     const title = data.title.trim()
@@ -690,6 +703,11 @@ export const followUpTask = createServerFn({ method: 'POST' })
         sourceLabel: 'Follow-up',
         parentId: parent.id,
         ...(parent.sessionId ? { sessionId: parent.sessionId } : {}),
+        // Picked in the follow-up box, else carried on from the task it follows.
+        ...(() => {
+          const model = isModel(data.model) ? data.model : parent.model
+          return model && model !== 'default' ? { model } : {}
+        })(),
       },
       { understand: false },
     )

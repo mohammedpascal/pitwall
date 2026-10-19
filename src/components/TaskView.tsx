@@ -5,6 +5,8 @@ import { KIND, STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
 import { MODE, ModePicker, useMode } from './ModePicker'
+import { ModelPicker, useModel } from './ModelPicker'
+import { MODELS, type ModelChoice } from '#/lib/models'
 import { QrCode } from './QrCode'
 
 export type TaskCommand =
@@ -16,7 +18,8 @@ export type TaskCommand =
   | { type: 'reopen' }
   | { type: 'stop' }
   | { type: 'restart' }
-  | { type: 'follow'; note: string; how: TaskStart }
+  | { type: 'follow'; note: string; how: TaskStart; model: ModelChoice }
+  | { type: 'model'; model: ModelChoice }
   | { type: 'remote'; on: boolean }
   | { type: 'answer'; decision: 'allow' | 'always' | 'deny' }
 
@@ -46,6 +49,14 @@ export function TaskView({
   const [sending, setSending] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
   const [followMode, setFollowMode] = useMode('pitwall.followMode', 'do')
+  const [remembered, remember] = useModel('pitwall.model')
+  // A follow-up starts on the model of the task it follows (if it had one) until you pick another.
+  const [picked, setPicked] = useState<{ task: string; model: ModelChoice } | null>(null)
+  const followModel = picked?.task === t.id ? picked.model : (t.model ?? remembered)
+  const setFollowModel = (m: ModelChoice) => {
+    setPicked({ task: t.id, model: m })
+    remember(m)
+  }
   const plans = t.plans ?? []
   const latest = plans.at(-1)?.v ?? null
   const showing = version ?? latest
@@ -97,10 +108,15 @@ export function TaskView({
             ? {
                 // A new task that picks up this one's conversation.
                 placeholder: 'Follow up on this…',
-                picker: <ModePicker mode={followMode} onPick={setFollowMode} />,
+                picker: (
+                  <>
+                    <ModelPicker model={followModel} onPick={setFollowModel} />
+                    <ModePicker mode={followMode} onPick={setFollowMode} />
+                  </>
+                ),
                 primary: {
                   label: MODE[followMode].button,
-                  run: () => send({ type: 'follow', note, how: followMode }),
+                  run: () => send({ type: 'follow', note, how: followMode, model: followModel }),
                   needsText: true,
                 },
               }
@@ -138,7 +154,13 @@ export function TaskView({
                 <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">{KIND[t.kind]}</span>
               )}
               <Icon />
-              {t.sourceLabel} · {ago(t.lastSeenAt ?? t.createdAt, now)}
+              {t.sourceLabel} · {ago(t.lastSeenAt ?? t.createdAt, now)} ·{' '}
+              {/* Which Claude does its next steps; change it here. */}
+              {isClosed(t) ? (
+                MODELS[t.model ?? 'default'].label
+              ) : (
+                <ModelPicker compact model={t.model ?? 'default'} onPick={(m) => void send({ type: 'model', model: m })} />
+              )}
               {(t.count ?? 1) > 1 && ` · ×${t.count}`}
             </span>
             {menu.length > 0 && <Menu label="Task options" size="sm" items={menu} />}

@@ -7,6 +7,7 @@ import { launch } from './launch'
 import * as pm from './processes'
 import * as tasks from './tasks'
 import type { Task, TaskKind, TaskStart } from './types'
+import { MODELS } from '#/lib/models'
 
 /**
  * A task's life: understood as soon as it arrives, planned when you ask, done
@@ -46,6 +47,8 @@ function session(task: Task) {
   return {
     sessionId: task.sessionId,
     fork: !!task.sessionId && task.sessionId === parent?.sessionId,
+    // The model you picked for this task, on every step.
+    model: MODELS[task.model ?? 'default'].flag ?? undefined,
   }
 }
 

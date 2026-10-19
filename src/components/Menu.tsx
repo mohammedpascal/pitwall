@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface MenuItem {
   label: string
@@ -32,6 +33,20 @@ export function Menu({
   const root = useRef<HTMLDivElement>(null)
   const opener = useRef<HTMLButtonElement>(null)
   const list = useRef<HTMLDivElement>(null)
+  // Drawn over the page, so a card that hides its overflow can't cut it off.
+  const [at, setAt] = useState<{ top: number; left?: number; right?: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (!open || !opener.current) return
+    const r = opener.current.getBoundingClientRect()
+    const width = list.current?.offsetWidth ?? 192
+    // Under its button, toward whichever side has room.
+    setAt(
+      r.right - width >= 8
+        ? { top: r.bottom + 4, right: window.innerWidth - r.right }
+        : { top: r.bottom + 4, left: Math.max(8, r.left) },
+    )
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -41,10 +56,19 @@ export function Menu({
       list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]')
     first?.focus()
     const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
+      const inside = root.current?.contains(e.target as Node) || list.current?.contains(e.target as Node)
+      if (!inside) setOpen(false)
     }
+    // It doesn't follow its button around, so it closes instead.
+    const onMove = () => setOpen(false)
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    window.addEventListener('resize', onMove)
+    window.addEventListener('scroll', onMove, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('resize', onMove)
+      window.removeEventListener('scroll', onMove, true)
+    }
   }, [open])
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -79,8 +103,8 @@ export function Menu({
           trigger && triggerClassName
             ? `${triggerClassName} ${open ? 'border-ink-faint text-ink' : ''}`
             : trigger
-            ? `inline-flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[13px] font-medium hover:bg-line-soft ${open ? 'bg-line-soft' : ''}`
-            : `flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`
+              ? `inline-flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft ${open ? 'bg-line-soft' : ''}`
+              : `flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`
         }
       >
         {trigger ?? (
@@ -91,40 +115,50 @@ export function Menu({
           </svg>
         )}
       </button>
-      {open && (
-        <div
-          ref={list}
-          role="menu"
-          aria-label={label}
-          onKeyDown={onKeyDown}
-          className="absolute top-full right-0 z-40 mt-1 flex min-w-48 flex-col rounded-xl border border-line bg-surface p-1 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
-        >
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
-              aria-checked={item.checked}
-              onClick={() => {
-                setOpen(false)
-                if (trigger) opener.current?.focus()
-                item.onSelect()
-              }}
-              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] font-medium outline-none hover:bg-line-soft focus:bg-line-soft ${item.danger ? 'text-err' : ''}`}
-            >
-              {item.checked !== undefined && (
-                <span aria-hidden="true" className="w-3 flex-none text-ink">
-                  {item.checked ? '✓' : ''}
+      {open &&
+        createPortal(
+          <div
+            ref={list}
+            role="menu"
+            aria-label={label}
+            onKeyDown={onKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: at?.top ?? -9999,
+              left: at?.left,
+              right: at?.right,
+              visibility: at ? 'visible' : 'hidden',
+            }}
+            className="z-50 flex min-w-48 flex-col rounded-xl border border-line bg-surface p-1 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+                aria-checked={item.checked}
+                onClick={() => {
+                  setOpen(false)
+                  if (trigger) opener.current?.focus()
+                  item.onSelect()
+                }}
+                className={`flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] font-medium outline-none hover:bg-line-soft focus:bg-line-soft ${item.danger ? 'text-err' : ''}`}
+              >
+                {item.checked !== undefined && (
+                  <span aria-hidden="true" className="w-3 flex-none text-ink">
+                    {item.checked ? '✓' : ''}
+                  </span>
+                )}
+                <span className="flex flex-col">
+                  {item.label}
+                  {item.hint && <span className="text-xs font-normal text-ink-soft">{item.hint}</span>}
                 </span>
-              )}
-              <span className="flex flex-col">
-                {item.label}
-                {item.hint && <span className="text-xs font-normal text-ink-soft">{item.hint}</span>}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

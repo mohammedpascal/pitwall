@@ -134,6 +134,8 @@ export async function runClaude(opts: {
   addDirs?: string[]
   /** Continue a copy of the session, leaving the original as it was. */
   fork?: boolean
+  /** A model alias (opus, sonnet…); none means Claude Code's default. */
+  model?: string
 }): Promise<{ sessionId: string; output: unknown; text: string; changedFiles: string[]; denials: string[] }> {
   const j = job(opts.taskId)
   if (j.running) throw new AgentError('Claude is already working on this task')
@@ -153,6 +155,7 @@ export async function runClaude(opts: {
   ]
   if (opts.sessionId) args.push('--resume', opts.sessionId)
   if (opts.sessionId && opts.fork) args.push('--fork-session')
+  if (opts.model) args.push('--model', opts.model)
   if (opts.schema) args.push('--json-schema', JSON.stringify(opts.schema))
   for (const d of opts.addDirs ?? []) args.push('--add-dir', d)
 

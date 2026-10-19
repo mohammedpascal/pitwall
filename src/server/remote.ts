@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { MODELS } from '#/lib/models'
 import * as agent from './agent'
 import { killTree } from './processes'
 import type { Task } from './types'
@@ -58,6 +59,8 @@ export function start(task: Task, cwd: string): Promise<string> {
   if (running) throw new Error('Remote control is still connecting')
 
   const cmd = ['claude', '--resume', task.sessionId, '--remote-control', task.title.slice(0, 60), '--permission-mode', 'default']
+  const model = MODELS[task.model ?? 'default'].flag
+  if (model) cmd.push('--model', model)
   // BSD script (macOS) takes the command as arguments; util-linux wants one string.
   const args =
     process.platform === 'darwin' ? ['-q', '/dev/null', ...cmd] : ['-qfc', cmd.map(quote).join(' '), '/dev/null']

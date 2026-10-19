@@ -4,6 +4,8 @@ import { ago } from '#/lib/format'
 import { KIND, STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/lib/stages'
 import { PaperclipIcon, PlusIcon, sourceIcon } from './icons'
 import { MODE, ModePicker, useMode } from './ModePicker'
+import { ModelPicker, useModel } from './ModelPicker'
+import type { ModelChoice } from '#/lib/models'
 
 export function TaskSidebar({
   projectName,
@@ -20,7 +22,7 @@ export function TaskSidebar({
   now: number
   selected: string | null
   /** Resolves true once the task is added. */
-  onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart) => Promise<boolean>
+  onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart, model: ModelChoice) => Promise<boolean>
   onOpen: (task: Task) => void
   /** The card's one button: Plan (or Do it), Review plan or Check it. */
   onAction: (task: Task) => void
@@ -197,10 +199,11 @@ function AddTask({
   onAdd,
 }: {
   projectName: string
-  onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart) => Promise<boolean>
+  onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart, model: ModelChoice) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useMode('pitwall.addMode', 'read')
+  const [model, setModel] = useModel('pitwall.model')
   const [draft, setDraft] = useState('')
   const [files, setFiles] = useState<Picked[]>([])
   const [saving, setSaving] = useState(false)
@@ -254,7 +257,7 @@ function AddTask({
     setSaving(true)
     try {
       const uploads = await Promise.all(files.map((p) => toUpload(p.file)))
-      if (await onAdd(title, uploads, mode)) reset()
+      if (await onAdd(title, uploads, mode, model)) reset()
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e))
     } finally {
@@ -361,7 +364,7 @@ function AddTask({
         </p>
       )}
 
-      <div className="flex items-center justify-between gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
         <input
           ref={picker}
           type="file"
@@ -381,15 +384,19 @@ function AddTask({
         >
           <PaperclipIcon />
         </button>
-        <span className="flex items-center gap-1.5">
-          <button type="button" onClick={reset} className="h-9 rounded-lg px-3 text-[13px] font-medium hover:bg-line-soft">
+        {/* How it runs on the left, the decision on the right; they wrap apart when narrow. */}
+        <span className="mr-auto flex items-center gap-1.5">
+          <ModelPicker model={model} onPick={setModel} />
+          <ModePicker mode={mode} onPick={setMode} />
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <button type="button" onClick={reset} className="h-9 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft">
             Cancel
           </button>
-          <ModePicker mode={mode} onPick={setMode} />
           <button
             type="submit"
             disabled={(!draft.trim() && !files.length) || saving}
-            className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
+            className="h-9 rounded-lg bg-ink px-3.5 text-[13px] font-medium whitespace-nowrap text-white hover:bg-ink/85 disabled:opacity-40"
           >
             {saving ? 'Adding…' : MODE[mode].button}
           </button>

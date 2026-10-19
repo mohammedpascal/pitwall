@@ -90,6 +90,11 @@ Claude Code rule in the project's `.claude/settings.local.json`) or **Deny**.
 A task Claude couldn't finish because of a Deny goes back a step instead of
 saying it's done.
 
+Pick which Claude does a task with the model picker next to the mode when you
+add it: **Default** (Claude Code's choice), Fable, Opus, Sonnet or Haiku. The
+picker remembers your last choice, follow-ups start on their task's model, and
+the model shown on an open task can be changed for its next steps.
+
 To carry on from a finished task, open it (it stays open after **Looks good**)
 and type in **Follow up on this…**: that starts a new task from a copy of its
 Claude conversation, so the context comes along. The two link to each other.

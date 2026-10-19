@@ -1,3 +1,4 @@
+import type { ModelChoice } from '#/lib/models'
 // Shared between server and browser — types only, no Node imports.
 
 export type ServiceStatus = 'stopped' | 'starting' | 'running' | 'error'
@@ -100,6 +101,8 @@ export interface Asking {
 }
 
 export interface Task {
+  /** Which Claude runs it; absent means Claude Code's default. */
+  model?: ModelChoice
   id: string
   projectId: string
   title: string
