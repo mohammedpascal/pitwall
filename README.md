@@ -17,7 +17,7 @@ services that use portless from inside Pitwall.
 
 ## Open a project
 
-Click **+** in the project rail and pick where it comes from:
+Click the dashed **+** at the end of the project strip and pick where it comes from:
 
 - **GitHub**: your repos, most recently pushed first. One click clones it into
   the projects folder and opens it (a repo that's already there just opens).
@@ -96,8 +96,9 @@ Claude conversation, so the context comes along. The two link to each other.
 
 A fixed crash restarts its service and closes itself once it runs cleanly.
 The list shows what waits on you first; everything else is one status line.
-Tasks belong to their project. Other projects show how many wait on you as a
-badge on their button in the left rail, and the tab title shows the total, e.g.
+Tasks belong to their project. Projects sit in a strip of chips at the top,
+each with a green dot while something runs and a badge with how many wait on
+you; the ones that need you come first. The tab title shows the total, e.g.
 `(3) younote · Pitwall`.
 Reading and planning never change the project. Plans are kept in
 `.pitwall/plans/`, and each task keeps one Claude conversation throughout.

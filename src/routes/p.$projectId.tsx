@@ -2,7 +2,7 @@ import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Menu } from '#/components/Menu'
 import { OutputPanel } from '#/components/OutputPanel'
-import { ProjectRail } from '#/components/ProjectRail'
+import { ProjectStrip } from '#/components/ProjectStrip'
 import { ServiceCard, STATUS } from '#/components/ServiceCard'
 import { TaskSidebar } from '#/components/TaskSidebar'
 import { TaskView, type TaskCommand } from '#/components/TaskView'
@@ -238,14 +238,12 @@ function Workspace() {
   const allUp = state.services.length > 0 && state.services.every((s) => isUpStatus(s.status))
 
   return (
-    <div className="flex min-h-screen flex-wrap bg-bg text-sm text-ink">
-      <ProjectRail projects={projects} current={projectId} cloud={state.cloud} />
-
-      <div className="flex min-w-0 flex-[999_1_560px] flex-wrap">
-        <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-7 px-8 pt-7 pb-10 max-sm:px-4">
+    <div className="flex min-h-screen bg-bg text-sm text-ink">
+      <div className="flex min-w-0 flex-1 flex-wrap">
+        <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-6 px-8 pt-5 pb-10 max-sm:px-4">
+          <ProjectStrip projects={projects} current={projectId} cloud={state.cloud} />
           <header className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <div className="text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase">Project</div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
               {editing === 'name' ? (
                 <InlineName
                   value={state.name}
@@ -270,19 +268,25 @@ function Workspace() {
                   }}
                 />
               ) : (
-                <div className="truncate font-mono text-xs text-ink-soft">{state.path}</div>
-              )}
-              {state.git && (
-                <GitLine
-                  git={state.git}
-                  busy={!!busy.__sync}
-                  onSync={() =>
-                    void run('__sync', async () => {
-                      const r = await syncProject({ data: { projectId } })
-                      showToast(syncResult(r))
-                    })
-                  }
-                />
+                // Where it lives and, for git, where the branch stands: one line.
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
+                  <span className="min-w-0 truncate font-mono">{state.path}</span>
+                  {state.git && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <GitLine
+                        git={state.git}
+                        busy={!!busy.__sync}
+                        onSync={() =>
+                          void run('__sync', async () => {
+                            const r = await syncProject({ data: { projectId } })
+                            showToast(syncResult(r))
+                          })
+                        }
+                      />
+                    </>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex items-center gap-1.5">
@@ -463,7 +467,7 @@ function GitLine({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () =>
     git.behind ? `${git.behind} new on GitHub` : '',
   ].filter(Boolean)
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="inline-flex items-center gap-1 font-mono">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="6" cy="6" r="2.5" />

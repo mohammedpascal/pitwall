@@ -19,11 +19,14 @@ export function Menu({
   items,
   size = 'md',
   trigger,
+  triggerClassName,
 }: {
   label: string
   items: MenuItem[]
   size?: 'sm' | 'md'
   trigger?: ReactNode
+  /** The labelled trigger's look, when it should match something else (e.g. a chip). */
+  triggerClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -73,7 +76,9 @@ export function Menu({
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={
-          trigger
+          trigger && triggerClassName
+            ? `${triggerClassName} ${open ? 'border-ink-faint text-ink' : ''}`
+            : trigger
             ? `inline-flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[13px] font-medium hover:bg-line-soft ${open ? 'bg-line-soft' : ''}`
             : `flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`
         }
