@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AttachmentUpload, Task, TaskStart } from '#/server/types'
 import { ago } from '#/lib/format'
-import { KIND, STAGE, byAttention, isClosed } from '#/lib/stages'
+import { KIND, STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/lib/stages'
 import { PaperclipIcon, PlusIcon, sourceIcon } from './icons'
 import { MODE, ModePicker, useMode } from './ModePicker'
 
@@ -28,7 +28,7 @@ export function TaskSidebar({
 }) {
   const open = tasks.filter((t) => !isClosed(t)).sort(byAttention)
   const closed = tasks.filter(isClosed)
-  const yours = open.filter((t) => STAGE[t.stage].yours).length
+  const yours = open.filter(waitsOnYou).length
 
   return (
     <aside
@@ -107,8 +107,8 @@ function TaskCard({
   const Icon = sourceIcon[t.source]
   const count = t.count ?? 1
   const stage = STAGE[t.stage]
-  // A simple task needs no plan, so its button does it.
-  const action = t.stage === 'ready' && t.simple ? 'Do it' : stage.action
+  // A simple task needs no plan, so its button does it. A question from Claude comes first.
+  const action = t.asking ? 'Answer' : t.stage === 'ready' && t.simple ? 'Do it' : stage.action
   return (
     <article
       onClick={onOpen}
@@ -142,10 +142,17 @@ function TaskCard({
       </button>
       {t.error && <p className="text-xs leading-snug text-err">{t.error}</p>}
       <div className="flex items-center justify-between gap-2">
-        <span className={`inline-flex items-center gap-1.5 text-xs ${stage.working ? 'text-ink-soft' : 'font-medium text-ink'}`}>
-          {stage.working && <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-ink-soft" />}
-          {stage.label}
-        </span>
+        {t.asking ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink">
+            <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-warn" />
+            {askingLabel(t.asking.tool)}
+          </span>
+        ) : (
+          <span className={`inline-flex items-center gap-1.5 text-xs ${stage.working ? 'text-ink-soft' : 'font-medium text-ink'}`}>
+            {stage.working && <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-ink-soft" />}
+            {stage.label}
+          </span>
+        )}
         {action && (
           <button
             type="button"

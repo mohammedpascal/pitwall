@@ -17,6 +17,7 @@ import {
   dismissTask,
   doTask,
   followUpTask,
+  answerTask,
   remoteTask,
   getProjectState,
   getTaskDetail,
@@ -197,6 +198,7 @@ function Workspace() {
       else if (c.type === 'restart') await restartTask({ data: { id } })
       else if (c.type === 'reopen') await reopenTask({ data: { id } })
       else if (c.type === 'remote') await remoteTask({ data: { id, on: c.on } })
+      else if (c.type === 'answer') await answerTask({ data: { id, decision: c.decision } })
       else if (c.type === 'follow') {
         // Open the new task, so you see it start.
         const next = await followUpTask({ data: { id, title: c.note, how: c.how } })
@@ -313,7 +315,14 @@ function Workspace() {
             </h2>
             {state.services.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-line p-6 text-center text-ink-soft">
-                No services in this project{suggestions.length ? '. Add one from below.' : '.'}
+                {suggestions.length ? (
+                  'Nothing runs here yet. Add it from below.'
+                ) : (
+                  <>
+                    Nothing runs here yet. Add a task like <span className="font-medium text-ink">Create a Vite + React app</span>{' '}
+                    and Claude builds it; Pitwall offers to run it once it appears.
+                  </>
+                )}
               </p>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">

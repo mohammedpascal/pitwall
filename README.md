@@ -17,7 +17,14 @@ services that use portless from inside Pitwall.
 
 ## Open a project
 
-Click **+** in the project rail, type a project folder and press **Open**.
+Click **+** in the project rail and pick where it comes from:
+
+- **GitHub**: your repos, most recently pushed first. One click clones it into
+  the projects folder and opens it (a repo that's already there just opens).
+- **New**: give it a name, and you get an empty project (a folder with git) for
+  Claude to build in. Pitwall offers to run the app once one appears.
+- **Folder**: a folder already on this machine (or paste a git URL).
+
 Pitwall finds the apps inside and starts them; there is nothing to configure.
 It understands:
 
@@ -73,9 +80,15 @@ make three decisions:
    the main panel: the problem, the screen before and after, the steps, the
    files and the risks. Type what should change and **Revise** for a new
    version; earlier versions stay a click away.
-3. **Do it.** Claude makes the change (it can edit files, not run commands);
-   you see its output and the changed files. Then **Looks good**, or
+3. **Do it.** Claude makes the change; you see its output and the changed files. Then **Looks good**, or
    **Not right** with what's wrong, which revises the plan.
+
+Claude edits files on its own. Anything else that needs permission, such as
+running a command or fetching a page, pauses the task in **Needs you** with
+what it wants to do: **Allow**, **Always allow in this project** (saved as a
+Claude Code rule in the project's `.claude/settings.local.json`) or **Deny**.
+A task Claude couldn't finish because of a Deny goes back a step instead of
+saying it's done.
 
 To carry on from a finished task, open it (it stays open after **Looks good**)
 and type in **Follow up on this…**: that starts a new task from a copy of its
@@ -131,6 +144,9 @@ The link works once, for 24 hours (`sudo pitwall link` prints a new one).
 It opens **Setup**, where you sign the server in to Claude (for tasks) and
 GitHub (for cloning, `git push` and pull requests), and give it a dev domain.
 Each is optional, and Setup stays at `/setup` for later.
+
+It starts with a **Hello World** project, a static page that shows how
+Pitwall works: try a task on it, then remove it from its **⋯** menu.
 
 - Until it has a domain, Pitwall is at the server's IP, with a certificate for
   the IP. Tasks, Claude and GitHub all work; apps can't be opened in the

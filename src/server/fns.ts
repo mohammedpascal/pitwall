@@ -12,6 +12,7 @@ import {
   isCloud,
   loadConfig,
   markSetupSeen,
+  projectsDir,
   publicIp,
   setDomain,
   setupSeen,
@@ -79,13 +80,67 @@ function gitUrl(input: string): string | null {
   return null
 }
 
+export interface GithubRepo {
+  fullName: string
+  description: string | null
+  private: boolean
+  pushedAt: string
+  /** The project it's already open as, if it's in the projects folder. */
+  openedId: string | null
+}
+
+/** Your GitHub repos, most recently pushed first; empty when GitHub isn't signed in here. */
+export const getGithubRepos = createServerFn({ method: 'GET' }).handler(
+  (): Promise<{ signedIn: boolean; repos: GithubRepo[] }> =>
+    new Promise((resolve) => {
+      const url = 'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member'
+      execFile('gh', ['api', url], { env: agent.childEnv(), timeout: 15_000, maxBuffer: 8 << 20 }, (err, stdout) => {
+        if (err) return resolve({ signedIn: false, repos: [] })
+        const opened = new Map(loadConfig().map((p) => [p.path, p.id]))
+        try {
+          const list = JSON.parse(stdout) as { full_name: string; name: string; description: string | null; private: boolean; pushed_at: string }[]
+          resolve({
+            signedIn: true,
+            repos: list.map((r) => ({
+              fullName: r.full_name,
+              description: r.description,
+              private: r.private,
+              pushedAt: r.pushed_at,
+              openedId: opened.get(path.join(projectsDir(), r.name)) ?? null,
+            })),
+          })
+        } catch {
+          resolve({ signedIn: true, repos: [] })
+        }
+      })
+    }),
+)
+
+/** A new, empty project in the projects folder: nothing runs yet, Claude can build it. */
+export const createEmptyProject = createServerFn({ method: 'POST' })
+  .validator((d: { name: string }) => d)
+  .handler(async ({ data }) => {
+    const name = data.name.trim()
+    const folder = slug(name)
+    if (!folder) throw new Error('Give it a name')
+    const dir = path.join(projectsDir(), folder)
+    if (fs.existsSync(dir) && fs.readdirSync(dir).length) {
+      throw new Error(`${displayPath(dir)} already exists. Open it from Folder.`)
+    }
+    fs.mkdirSync(dir, { recursive: true })
+    await new Promise<void>((resolve) => execFile('git', ['init', '-q'], { cwd: dir, env: agent.childEnv() }, () => resolve()))
+    const id = uniqueServiceId(loadConfig().map((p) => p.id), folder)
+    insertProject({ id, name, path: displayPath(dir), services: [] })
+    return { id }
+  })
+
 /** Clones it into the projects folder, or finds the copy already there. */
 function cloneInto(url: string): Promise<string> {
   const name = path.basename(url.replace(/\/+$/, '')).replace(/\.git$/, '')
-  const dir = path.join(projectsHome(), name)
+  const dir = path.join(projectsDir(), name)
   if (fs.existsSync(path.join(dir, '.git'))) return Promise.resolve(dir)
   if (fs.existsSync(dir)) throw new Error(`${displayPath(dir)} already exists and isn’t that repository`)
-  fs.mkdirSync(projectsHome(), { recursive: true })
+  fs.mkdirSync(projectsDir(), { recursive: true })
   return new Promise((resolve, reject) => {
     // No terminal to ask for a password: fail fast and say so instead.
     const env = { ...agent.childEnv(), GIT_TERMINAL_PROMPT: '0' }
@@ -117,14 +172,9 @@ function toConfig(s: { id: string; name: string; command: string; cwd: string })
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-/** Where projects go: PITWALL_PROJECTS, else ~/projects on a cloud machine and ~/src here. */
-function projectsHome() {
-  return expand(process.env.PITWALL_PROJECTS?.trim() || (isCloud() ? '~/projects' : '~/src'))
-}
-
 /** Where the folder box starts; ~ stays ~ so it reads short. */
 export const getProjectsHome = createServerFn({ method: 'GET' }).handler(async () => {
-  const short = displayPath(projectsHome())
+  const short = displayPath(projectsDir())
   return short.endsWith('/') ? short : short + '/'
 })
 
@@ -203,7 +253,7 @@ export const getProjects = createServerFn({ method: 'GET' }).handler(
     startLifecycle()
     const waiting = new Map<string, number>()
     for (const t of tasks.all()) {
-      if (STAGE[t.stage].yours) waiting.set(t.projectId, (waiting.get(t.projectId) ?? 0) + 1)
+      if (STAGE[t.stage].yours || agent.asking(t.id)) waiting.set(t.projectId, (waiting.get(t.projectId) ?? 0) + 1)
     }
     return loadConfig().map((p) => ({
       id: p.id,
@@ -261,7 +311,8 @@ export const getProjectState = createServerFn({ method: 'GET' })
       services,
       logService,
       logs: logService ? pm.logs(key(project.id, logService)) : [],
-      tasks: tasks.list(project.id),
+      // A task Claude is asking permission on waits on you too.
+      tasks: tasks.list(project.id).map((t) => ({ ...t, asking: agent.asking(t.id) ?? undefined })),
     }
   })
 
@@ -329,7 +380,8 @@ export const stopAll = createServerFn({ method: 'POST' })
 
 /** Open a folder: scan it, add it as a project and start its services. */
 export const openProject = createServerFn({ method: 'POST' })
-  .validator((d: { path: string }) => d)
+  // allowEmpty: a repo with nothing to run still opens, as a project with no services yet.
+  .validator((d: { path: string; allowEmpty?: boolean }) => d)
   .handler(async ({ data }): Promise<OpenResult> => {
     const repo = gitUrl(data.path)
     const dir = repo ? await cloneInto(repo) : requireFolder(data.path)
@@ -338,7 +390,7 @@ export const openProject = createServerFn({ method: 'POST' })
 
     const scan = scanFolder(dir)
     const services = scan.services.filter((s) => s.enabled)
-    if (!services.length) {
+    if (!services.length && !data.allowEmpty) {
       return { status: 'empty', path: dir, displayPath: scan.displayPath, name: scan.suggestedName }
     }
     const project: ProjectConfig = {
@@ -527,6 +579,7 @@ export const getTaskDetail = createServerFn({ method: 'GET' })
       log: agent.log(task.id),
       plan: v && html ? { v, html } : null,
       working: agent.isRunning(task.id),
+      asking: agent.asking(task.id),
       remote: remote.get(task.id),
       parent: parent ? { id: parent.id, title: parent.title } : null,
       followUps,
@@ -606,6 +659,13 @@ export const reopenTask = createServerFn({ method: 'POST' })
   })
 
 /** Drive the task's conversation from claude.ai or the Claude app; resolves with the link. */
+/** Your answer to what Claude asked permission for. */
+export const answerTask = createServerFn({ method: 'POST' })
+  .validator((d: { id: string; decision: agent.Answer }) => d)
+  .handler(async ({ data }) => {
+    agent.answer(data.id, data.decision)
+  })
+
 export const remoteTask = createServerFn({ method: 'POST' })
   .validator((d: { id: string; on: boolean }) => d)
   .handler(async ({ data }) => {

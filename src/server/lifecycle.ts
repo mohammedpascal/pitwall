@@ -1,4 +1,5 @@
 import { findProject, isCloud, loadConfig } from './config'
+import { seedHello } from './hello'
 import { launch } from './launch'
 import * as pm from './processes'
 import * as tasks from './tasks'
@@ -63,6 +64,8 @@ export function startLifecycle() {
   // Services you left running start again when Pitwall comes back.
   const projects = loadConfig()
   void (async () => {
+    // A new cloud machine gets the sample project (only ever once).
+    await seedHello().catch((e) => console.error('[pitwall] sample project:', e))
     // One at a time, so Expo apps don't race for the same free port.
     for (const k of pm.remembered()) {
       const [projectId, serviceId] = splitKey(k)

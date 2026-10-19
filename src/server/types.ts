@@ -92,6 +92,12 @@ export interface PlanVersion {
   note?: string
 }
 
+/** A permission Claude is waiting for you to answer. */
+export interface Asking {
+  tool: string
+  summary: string
+}
+
 export interface Task {
   id: string
   projectId: string
@@ -127,6 +133,8 @@ export interface Task {
   fixedAt?: number
   /** The last step that failed, shown on the task. */
   error?: string
+  /** Not stored: what Claude is asking permission for right now. */
+  asking?: Asking
 }
 
 /** A task opened in the main panel. */
@@ -136,6 +144,7 @@ export interface TaskDetail {
   /** The HTML of the plan version asked for, or the latest. */
   plan: { v: number; html: string } | null
   working: boolean
+  asking: Asking | null
   /** Remote Control on this task's conversation; no link yet while it connects. */
   remote: { url: string | null; startedAt: number } | null
   parent: { id: string; title: string } | null

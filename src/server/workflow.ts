@@ -260,6 +260,13 @@ Don't start or restart dev servers; Pitwall runs them. When you're done, reply w
         mode: 'edit',
         addDirs: readable(task),
       })
+      // Stopped by something you denied, with nothing changed: it isn't done, so don't say it is.
+      if (r.denials.length && !r.changedFiles.length) {
+        const what = [...new Set(r.denials)].join(', ')
+        tasks.update(task.id, { sessionId: r.sessionId, stage: back, error: `Claude couldn’t finish: not allowed to use ${what}` })
+        agent.note(task.id, `Claude couldn’t finish: not allowed to use ${what}.`, 'err')
+        return
+      }
       tasks.update(task.id, (t) => ({
         sessionId: r.sessionId,
         stage: 'check',

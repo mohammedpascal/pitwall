@@ -8,7 +8,7 @@ export type { ProjectConfig, ServiceConfig }
 const ROOT = process.cwd()
 const FILE = path.join(ROOT, 'pitwall.config.json')
 
-type RawConfig = { projects?: ProjectConfig[]; domain?: string; setupSeen?: boolean } & Record<string, unknown>
+type RawConfig = { projects?: ProjectConfig[]; domain?: string; setupSeen?: boolean; helloSeeded?: boolean } & Record<string, unknown>
 
 export function expand(p: string, base: string = ROOT) {
   if (p === '~' || p.startsWith('~/')) return path.resolve(os.homedir(), p.slice(2))
@@ -58,6 +58,16 @@ export function setDomain(domain: string) {
 }
 
 export const setupSeen = () => readRaw().setupSeen === true
+
+/** Where projects go: PITWALL_PROJECTS, else ~/projects on a cloud machine and ~/src here. */
+export const projectsDir = () => expand(process.env.PITWALL_PROJECTS?.trim() || (isCloud() ? '~/projects' : '~/src'))
+
+/** The sample project is made once; removing it doesn't bring it back. */
+export const helloSeeded = () => readRaw().helloSeeded === true
+
+export function markHelloSeeded() {
+  writeRaw({ ...readRaw(), helloSeeded: true })
+}
 
 export function markSetupSeen() {
   writeRaw({ ...readRaw(), setupSeen: true })

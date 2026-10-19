@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TaskDetail, TaskStart } from '#/server/types'
 import { ago, clock } from '#/lib/format'
-import { KIND, STAGE, isClosed } from '#/lib/stages'
+import { KIND, STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
 import { MODE, ModePicker, useMode } from './ModePicker'
@@ -18,6 +18,7 @@ export type TaskCommand =
   | { type: 'restart' }
   | { type: 'follow'; note: string; how: TaskStart }
   | { type: 'remote'; on: boolean }
+  | { type: 'answer'; decision: 'allow' | 'always' | 'deny' }
 
 /** One task, opened in the main panel: what it is, its plan, and the next decision. */
 export function TaskView({
@@ -38,7 +39,7 @@ export function TaskView({
   onClose: () => void
   onOpenTask: (id: string) => void
 }) {
-  const { task: t, plan, log, parent, followUps, remote } = detail
+  const { task: t, plan, log, parent, followUps, remote, asking } = detail
   const stage = STAGE[t.stage]
   const Icon = sourceIcon[t.source]
   const [draft, setDraft] = useState('')
@@ -226,6 +227,44 @@ export function TaskView({
           <div className="flex items-center gap-2.5 border-b border-line bg-err-tint px-5 py-3 text-[13px]">
             <AlertIcon className="flex-none text-err" />
             <span>{t.error}</span>
+          </div>
+        )}
+
+        {asking && (
+          <div className="flex flex-col gap-3 border-b border-line bg-warn/10 px-5 py-4 text-[13px]">
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <span aria-hidden="true" className="size-2 rounded-full bg-warn" />
+              {askingLabel(asking.tool).replace('asks to', 'wants to')}
+            </span>
+            <code className="rounded-lg border border-line bg-surface px-3 py-2 font-mono text-[12.5px] break-all whitespace-pre-wrap">
+              {asking.summary}
+            </code>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => void send({ type: 'answer', decision: 'allow' })}
+                className="h-9 rounded-lg bg-ink px-4 font-medium text-white hover:bg-ink/85 disabled:opacity-50"
+              >
+                Allow
+              </button>
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => void send({ type: 'answer', decision: 'always' })}
+                className="h-9 rounded-lg border border-line bg-surface px-3 font-medium hover:bg-line-soft disabled:opacity-50"
+              >
+                Always allow in this project
+              </button>
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => void send({ type: 'answer', decision: 'deny' })}
+                className="h-9 rounded-lg px-3 font-medium text-ink-soft hover:bg-line-soft hover:text-ink disabled:opacity-50"
+              >
+                Deny
+              </button>
+            </div>
           </div>
         )}
 
