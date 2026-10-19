@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { TaskDetail, TaskStart } from '#/server/types'
+import type { AttachmentUpload, TaskDetail, TaskStart } from '#/server/types'
+import { AttachButton, AttachmentChips, useAttachments } from './Attachments'
 import { ago, clock } from '#/lib/format'
 import { read, write } from '#/lib/storage'
 import { KIND, STAGE, askingLabel, isClosed } from '#/lib/stages'
-import { AlertIcon, PaperclipIcon, sourceIcon } from './icons'
+import { AlertIcon, ArrowUpIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker, useModel } from './ModelPicker'
@@ -22,7 +23,7 @@ export type TaskCommand =
   | { type: 'reopen' }
   | { type: 'stop' }
   | { type: 'restart' }
-  | { type: 'follow'; note: string; how: TaskStart; model: ModelChoice }
+  | { type: 'follow'; note: string; how: TaskStart; model: ModelChoice; attachments?: AttachmentUpload[] }
   | { type: 'model'; model: ModelChoice }
   | { type: 'remote'; on: boolean }
   | { type: 'answer'; decision: 'allow' | 'always' | 'deny' }
@@ -66,6 +67,10 @@ export function TaskView({
     write(planKey, hide ? '1' : '0')
     setPlanHidden(hide)
   }
+  const [arrivedHidden, foldArrived] = useFolded(`pitwall:fold:arrived:${t.id}`, true)
+  const [detailHidden, foldDetail] = useFolded(`pitwall:fold:detail:${t.id}`, true)
+  const [changedHidden, foldChanged] = useFolded(`pitwall:fold:changed:${t.id}`, false)
+  const [followUpsHidden, foldFollowUps] = useFolded(`pitwall:fold:follow-ups:${t.id}`, false)
   const stage = STAGE[t.stage]
   const Icon = sourceIcon[t.source]
   const [draft, setDraft] = useState('')
@@ -74,7 +79,10 @@ export function TaskView({
   const [followMode, setFollowMode] = useMode('pitwall.followMode', 'do')
   const [remembered, remember] = useModel('pitwall.model')
   // A follow-up starts on the model of the task it follows (if it had one) until you pick another.
-  const [picked, setPicked] = useState<{ task: string; model: ModelChoice } | null>(null)
+  const [picked, setPicked] = useState<{
+    task: string
+    model: ModelChoice
+  } | null>(null)
   const followModel = picked?.task === t.id ? picked.model : (t.model ?? remembered)
   const setFollowModel = (m: ModelChoice) => {
     setPicked({ task: t.id, model: m })
@@ -86,12 +94,17 @@ export function TaskView({
 
   // A new task, or a step finished: start with an empty box.
   useEffect(() => setDraft(''), [t.id, t.stage])
+  // A follow-up can carry files, like a new task.
+  const attach = useAttachments()
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => attach.clear(), [t.id, t.stage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function send(c: TaskCommand) {
     setSending(true)
     try {
       await onCommand(c)
       setDraft('')
+      attach.clear()
     } finally {
       setSending(false)
     }
@@ -100,9 +113,19 @@ export function TaskView({
   const note = draft.trim()
   const suggest = useSkillSuggest(draft, isClosed(t) ? skills : [], setDraft)
   // The text box and buttons change with the stage; there's always one primary action.
-  type Action = { label: string; run: () => Promise<void>; needsText?: boolean }
-  const planIt: Action = { label: 'Plan', run: () => send({ type: 'plan', note }) }
-  const doIt: Action = { label: 'Do it', run: () => send({ type: 'do', note }) }
+  type Action = {
+    label: string
+    run: () => Promise<void>
+    needsText?: boolean
+  }
+  const planIt: Action = {
+    label: 'Plan',
+    run: () => send({ type: 'plan', note }),
+  }
+  const doIt: Action = {
+    label: 'Do it',
+    run: () => send({ type: 'do', note }),
+  }
   // While you drive it remotely, Pitwall's steps wait.
   const step = remote
     ? null
@@ -116,7 +139,11 @@ export function TaskView({
       : t.stage === 'planned'
         ? {
             placeholder: 'What should change in the plan?',
-            secondary: { label: 'Revise', run: () => send({ type: 'plan', note }), needsText: true },
+            secondary: {
+              label: 'Revise',
+              run: () => send({ type: 'plan', note }),
+              needsText: true,
+            },
             primary: { label: 'Do it', run: () => send({ type: 'do' }) },
             // Typing turns Enter into Revise; an empty box goes ahead.
             enter: note ? 'secondary' : 'primary',
@@ -124,8 +151,15 @@ export function TaskView({
         : t.stage === 'check'
           ? {
               placeholder: 'What isn’t right?',
-              secondary: { label: 'Not right', run: () => send({ type: 'confirm', ok: false, note }), needsText: true },
-              primary: { label: 'Looks good', run: () => send({ type: 'confirm', ok: true }) },
+              secondary: {
+                label: 'Not right',
+                run: () => send({ type: 'confirm', ok: false, note }),
+                needsText: true,
+              },
+              primary: {
+                label: 'Looks good',
+                run: () => send({ type: 'confirm', ok: true }),
+              },
               enter: note ? 'secondary' : 'primary',
             }
           : isClosed(t)
@@ -138,10 +172,21 @@ export function TaskView({
                     <ModePicker mode={followMode} onPick={setFollowMode} />
                   </>
                 ),
+                attachable: true,
                 primary: {
                   label: MODE[followMode].button,
-                  run: () => send({ type: 'follow', note, how: followMode, model: followModel }),
-                  needsText: true,
+                  run: async () => {
+                    let attachments
+                    try {
+                      attachments = await attach.uploads()
+                    } catch (e) {
+                      attach.setProblem(e instanceof Error ? e.message : String(e))
+                      return
+                    }
+                    await send({ type: 'follow', note, how: followMode, model: followModel, attachments })
+                  },
+                  // Files alone are enough, as with a new task.
+                  needsText: attach.files.length === 0,
                 },
               }
             : null
@@ -149,13 +194,38 @@ export function TaskView({
   const menu = [
     ...(stage.working ? [{ label: 'Stop Claude', onSelect: () => void send({ type: 'stop' }) }] : []),
     ...(remote
-      ? [{ label: 'Stop remote control', onSelect: () => void send({ type: 'remote', on: false }) }]
+      ? [
+          {
+            label: 'Stop remote control',
+            onSelect: () => void send({ type: 'remote', on: false }),
+          },
+        ]
       : t.sessionId && !stage.working
-        ? [{ label: 'Remote control', onSelect: () => void send({ type: 'remote', on: true }) }]
+        ? [
+            {
+              label: 'Remote control',
+              onSelect: () => void send({ type: 'remote', on: true }),
+            },
+          ]
         : []),
     ...(!isClosed(t) ? [{ label: 'Mark done', onSelect: () => void send({ type: 'done' }) }] : []),
-    ...(!stage.working ? [{ label: 'Start over', onSelect: () => void send({ type: 'restart' }) }] : []),
-    ...(!isClosed(t) ? [{ label: 'Dismiss', onSelect: () => void send({ type: 'dismiss' }), danger: true }] : []),
+    ...(!stage.working
+      ? [
+          {
+            label: 'Start over',
+            onSelect: () => void send({ type: 'restart' }),
+          },
+        ]
+      : []),
+    ...(!isClosed(t)
+      ? [
+          {
+            label: 'Dismiss',
+            onSelect: () => void send({ type: 'dismiss' }),
+            danger: true,
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -208,25 +278,6 @@ export function TaskView({
             {t.title}
           </h2>
           {t.summary && <p className="max-w-[68ch] text-[13.5px] leading-relaxed text-ink-soft">{t.summary}</p>}
-          {followUps.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-ink-soft">Follow-ups</span>
-              <ul className="flex flex-col gap-0.5">
-                {followUps.map((f) => (
-                  <li key={f.id}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenTask(f.id)}
-                      className="flex max-w-full items-baseline gap-2 text-left text-[13px] hover:underline"
-                    >
-                      <span className="truncate">{f.title}</span>
-                      <span className="flex-none text-xs text-ink-soft">{STAGE[f.stage].label}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
           {t.attachments && t.attachments.length > 0 && (
             <ul aria-label="Attachments" className="flex flex-wrap gap-2">
               {t.attachments.map((a) => {
@@ -255,24 +306,6 @@ export function TaskView({
               })}
             </ul>
           )}
-          {(t.original && t.original !== t.title) || t.detail ? (
-            <div className="flex flex-wrap gap-4 text-xs">
-              {t.original && t.original !== t.title && (
-                <details>
-                  <summary className="text-ink-soft">As it arrived</summary>
-                  <p className="mt-2 max-w-[68ch] text-[13px] leading-relaxed whitespace-pre-wrap">{t.original}</p>
-                </details>
-              )}
-              {t.detail && (
-                <details>
-                  <summary className="text-ink-soft">Output</summary>
-                  <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-bg p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
-                    {t.detail}
-                  </pre>
-                </details>
-              )}
-            </div>
-          ) : null}
         </header>
 
         {t.error && (
@@ -362,69 +395,116 @@ export function TaskView({
           </div>
         )}
 
+        {t.original && t.original !== t.title && (
+          <Section label="As it arrived" hidden={arrivedHidden} onToggle={foldArrived}>
+            <p className="max-w-[68ch] px-5 py-3 text-[13px] leading-relaxed whitespace-pre-wrap">{t.original}</p>
+          </Section>
+        )}
+
+        {t.detail && (
+          <Section label="Output" hidden={detailHidden} onToggle={foldDetail}>
+            <pre className="max-h-48 overflow-auto px-5 py-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+              {t.detail}
+            </pre>
+          </Section>
+        )}
+
         {plan && (
-          <div className="flex flex-col border-b border-line">
-            {/* The strip folds the plan away and back, like a preview's Hide. */}
-            <div
-              role="button"
-              tabIndex={0}
-              aria-expanded={!planHidden}
-              onClick={() => togglePlan()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  togglePlan()
-                }
-              }}
-              className={`flex cursor-pointer items-center justify-between gap-2 bg-bg/60 px-4 py-2 text-xs hover:bg-line-soft/60 ${
-                planHidden ? '' : 'border-b border-line-soft'
-              }`}
-            >
-              <span className="font-semibold">
+          <Section
+            label={
+              <>
                 Plan v{plan.v}
                 {plans.find((p) => p.v === plan.v)?.note && (
                   <span className="ml-2 font-normal text-ink-soft">“{plans.find((p) => p.v === plan.v)?.note}”</span>
                 )}
-              </span>
-              <span className="flex items-center gap-1">
-                {plans.length > 1 && (
-                  <span className="flex items-center gap-1" role="group" aria-label="Plan versions">
-                    {plans.map((p) => (
-                      <button
-                        key={p.v}
-                        type="button"
-                        aria-pressed={p.v === showing}
-                        onClick={(e) => {
-                          // Picks a version, and shows it if the plan was folded away.
-                          e.stopPropagation()
-                          onVersion(p.v === latest ? null : p.v)
-                          togglePlan(false)
-                        }}
-                        className={`h-7 min-w-7 rounded-md px-1.5 font-medium ${
-                          p.v === showing ? 'bg-ink text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-                        }`}
-                      >
-                        v{p.v}
-                      </button>
-                    ))}
-                  </span>
-                )}
-                <span className="ml-2 font-medium text-ink-soft">{planHidden ? 'Show plan' : 'Hide'}</span>
-              </span>
-            </div>
-            {!planHidden && <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />}
-          </div>
+              </>
+            }
+            extra={
+              plans.length > 1 && (
+                <span className="flex items-center gap-1" role="group" aria-label="Plan versions">
+                  {plans.map((p) => (
+                    <button
+                      key={p.v}
+                      type="button"
+                      aria-pressed={p.v === showing}
+                      onClick={(e) => {
+                        // Picks a version, and shows it if the plan was folded away.
+                        e.stopPropagation()
+                        onVersion(p.v === latest ? null : p.v)
+                        togglePlan(false)
+                      }}
+                      className={`h-7 min-w-7 rounded-md px-1.5 font-medium ${
+                        p.v === showing ? 'bg-ink text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+                      }`}
+                    >
+                      v{p.v}
+                    </button>
+                  ))}
+                </span>
+              )
+            }
+            hidden={planHidden}
+            onToggle={togglePlan}
+          >
+            <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />
+          </Section>
         )}
 
         {t.changedFiles && t.changedFiles.length > 0 && (
-          <div className="flex flex-col gap-1.5 border-b border-line px-5 py-3">
-            <span className="text-xs font-semibold text-ink-soft">Changed</span>
-            <ul className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs">
+          <Section
+            label={
+              <>
+                Changed
+                <span className="font-normal text-ink-soft">
+                  {' '}
+                  · {t.changedFiles.length} {t.changedFiles.length === 1 ? 'file' : 'files'}
+                </span>
+              </>
+            }
+            hidden={changedHidden}
+            onToggle={foldChanged}
+          >
+            <ul className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-3 font-mono text-xs">
               {t.changedFiles.map((f) => (
                 <li key={f}>{f}</li>
               ))}
             </ul>
-          </div>
+          </Section>
+        )}
+
+        {followUps.length > 0 && (
+          <Section
+            label={
+              <>
+                Follow-ups <span className="font-normal text-ink-soft">· {followUps.length}</span>
+              </>
+            }
+            hidden={followUpsHidden}
+            onToggle={foldFollowUps}
+          >
+            {/* Each follow-up reads as a message, in order; it opens its own task. */}
+            <ul className="flex flex-col">
+              {followUps.map((f) => (
+                <li key={f.id} className="border-b border-line-soft last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask(f.id)}
+                    className="flex w-full flex-col gap-0.5 px-5 py-3 text-left hover:bg-line-soft/40"
+                  >
+                    <span className="flex items-baseline justify-between gap-2 text-xs text-ink-soft">
+                      <span className="truncate">
+                        {f.sourceLabel} · {ago(f.createdAt, now)}
+                      </span>
+                      <span className="flex-none">{STAGE[f.stage].label}</span>
+                    </span>
+                    <span className="max-w-[68ch] text-[13.5px] leading-relaxed break-words whitespace-pre-wrap">
+                      {f.original ?? f.title}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Section>
         )}
 
         {step && (
@@ -434,49 +514,102 @@ export function TaskView({
               const which = 'enter' in step && step.enter === 'secondary' ? step.secondary : step.primary
               if (which && !(which.needsText && !note)) void which.run()
             }}
-            className="flex flex-col gap-2 border-b border-line p-4"
+            className="border-b border-line p-4"
           >
-            <label htmlFor="task-note" className="sr-only">
-              {step.placeholder}
-            </label>
-            <textarea
-              id="task-note"
-              ref={box}
-              rows={2}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                // A follow-up can start with "/" to run a skill.
-                if (suggest.onKeyDown(e)) return
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  e.currentTarget.form?.requestSubmit()
-                }
+            {/* One box with the buttons inside, like the new-task composer. */}
+            <div
+              onDragOver={(e) => {
+                if (!('attachable' in step) || ![...e.dataTransfer.types].includes('Files')) return
+                e.preventDefault()
+                setDragging(true)
               }}
-              placeholder={step.placeholder}
-              className="resize-y rounded-[10px] border border-line bg-surface px-3 py-2.5 text-sm leading-normal outline-none placeholder:text-ink-faint focus:border-ink"
-            />
-            <SkillSuggest {...suggest} />
-            <div className="flex items-center justify-end gap-1.5">
-              {'picker' in step && step.picker}
-              {step.secondary && (
-                <button
-                  type="button"
-                  disabled={sending || (step.secondary.needsText && !note)}
-                  onClick={() => void step.secondary?.run()}
-                  className="h-9 rounded-lg border border-line px-3.5 text-[13px] font-medium hover:bg-line-soft disabled:opacity-40"
-                >
-                  {step.secondary.label}
-                </button>
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false)
+              }}
+              onDrop={(e) => {
+                if (!('attachable' in step) || !e.dataTransfer.files.length) return
+                e.preventDefault()
+                setDragging(false)
+                attach.addFiles(e.dataTransfer.files)
+              }}
+              className={`flex flex-col gap-2 rounded-[14px] border bg-surface p-3 ${
+                dragging ? 'border-dashed border-ink bg-line-soft' : 'border-line focus-within:border-ink'
+              }`}
+            >
+              <label htmlFor="task-note" className="sr-only">
+                {step.placeholder}
+              </label>
+              <textarea
+                id="task-note"
+                ref={box}
+                rows={2}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onPaste={(e) => {
+                  // A pasted screenshot becomes an attachment; pasted text stays text.
+                  if ('attachable' in step && e.clipboardData.files.length) {
+                    e.preventDefault()
+                    attach.addFiles(e.clipboardData.files)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  // A follow-up can start with "/" to run a skill.
+                  if (suggest.onKeyDown(e)) return
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    e.currentTarget.form?.requestSubmit()
+                  }
+                }}
+                placeholder={dragging ? 'Drop to attach' : step.placeholder}
+                className="resize-y bg-transparent text-sm leading-normal outline-none placeholder:text-ink-faint"
+              />
+              <SkillSuggest {...suggest} />
+              <AttachmentChips files={attach.files} onRemove={attach.removeFile} />
+              {attach.problem && (
+                <p role="alert" className="text-xs text-err">
+                  {attach.problem}
+                </p>
               )}
-              <button
-                type="button"
-                disabled={sending || (step.primary.needsText && !note)}
-                onClick={() => void step.primary.run()}
-                className="h-9 rounded-lg bg-ink px-4 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
-              >
-                {step.primary.label}
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                {'attachable' in step && (
+                  <span className="mr-auto">
+                    <AttachButton onPick={attach.addFiles} />
+                  </span>
+                )}
+                {'picker' in step && step.picker}
+                {step.secondary && (
+                  <button
+                    type="button"
+                    disabled={sending || (step.secondary.needsText && !note)}
+                    onClick={() => void step.secondary?.run()}
+                    className="h-9 rounded-lg border border-line px-3.5 text-[13px] font-medium hover:bg-line-soft disabled:opacity-40"
+                  >
+                    {step.secondary.label}
+                  </button>
+                )}
+                {step.secondary ? (
+                  <button
+                    type="button"
+                    disabled={sending || (step.primary.needsText && !note)}
+                    onClick={() => void step.primary.run()}
+                    className="h-9 rounded-lg bg-ink px-4 text-[13px] font-medium text-white hover:bg-ink/85 disabled:opacity-40"
+                  >
+                    {step.primary.label}
+                  </button>
+                ) : (
+                  // A lone action sends, like the composer's round button.
+                  <button
+                    type="button"
+                    disabled={sending || (step.primary.needsText && !note)}
+                    onClick={() => void step.primary.run()}
+                    aria-label={step.primary.label}
+                    title={step.primary.label}
+                    className="flex size-9 items-center justify-center rounded-full bg-ink text-white hover:bg-ink/85 disabled:opacity-40"
+                  >
+                    <ArrowUpIcon className={sending ? 'animate-pulse' : undefined} />
+                  </button>
+                )}
+              </div>
             </div>
           </form>
         )}
@@ -488,30 +621,97 @@ export function TaskView({
           </div>
         )}
 
-        <ClaudeLog log={log} open={!!stage.working} />
+        <ClaudeLog key={t.id} log={log} open={!!stage.working} />
       </div>
     </section>
   )
 }
 
-const LEVEL = { info: 'text-ink', ok: 'text-ok', warn: 'text-ink-soft', err: 'text-err' }
+/** Folded or not, per task and section, remembered in this browser. */
+function useFolded(key: string, initial: boolean) {
+  const [hidden, setHidden] = useState(initial)
+  useEffect(() => {
+    const v = read(key)
+    setHidden(v === null ? initial : v === '1')
+  }, [key, initial])
+  function toggle(hide = !hidden) {
+    write(key, hide ? '1' : '0')
+    setHidden(hide)
+  }
+  return [hidden, toggle] as const
+}
+
+/** One part of the task: a strip that folds it away and back, then the same divider as the rest. */
+function Section({
+  label,
+  extra,
+  hidden,
+  onToggle,
+  children,
+}: {
+  label: React.ReactNode
+  /** Controls beside Show/Hide; their clicks shouldn't fold the section. */
+  extra?: React.ReactNode
+  hidden: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col border-b border-line last:border-b-0">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={!hidden}
+        onClick={() => onToggle()}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          }
+        }}
+        className={`flex cursor-pointer items-center justify-between gap-2 bg-bg/60 px-4 py-2 text-xs hover:bg-line-soft/60 ${
+          hidden ? '' : 'border-b border-line-soft'
+        }`}
+      >
+        <span className="font-semibold">{label}</span>
+        <span className="flex items-center gap-1">
+          {extra}
+          <span className="ml-2 font-medium text-ink-soft">{hidden ? 'Show' : 'Hide'}</span>
+        </span>
+      </div>
+      {!hidden && children}
+    </div>
+  )
+}
+
+const LEVEL = {
+  info: 'text-ink',
+  ok: 'text-ok',
+  warn: 'text-ink-soft',
+  err: 'text-err',
+}
 
 function ClaudeLog({ log, open }: { log: TaskDetail['log']; open: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   const last = log.at(-1)?.seq
+  // Shown while Claude works; otherwise folded until you ask for it.
+  const [hidden, setHidden] = useState(!open)
+  useEffect(() => {
+    if (open) setHidden(false)
+  }, [open])
   useEffect(() => {
     const el = box.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [last, open])
+  }, [last, hidden])
   if (log.length === 0) return null
   return (
-    <details open={open || undefined} className="group">
-      <summary className="px-5 py-3 text-xs font-semibold text-ink-soft">Claude’s output</summary>
+    <Section label="Claude’s output" hidden={hidden} onToggle={() => setHidden((h) => !h)}>
       <div
         ref={box}
         role="log"
         aria-label="Claude’s output"
-        className="max-h-[320px] overflow-auto px-5 pb-4 font-mono text-[12px] leading-[1.75]"
+        className="max-h-[320px] overflow-auto px-5 py-3 font-mono text-[12px] leading-[1.75]"
       >
         {log.map((l) => (
           <div key={l.seq} className={`flex gap-3.5 whitespace-pre-wrap ${LEVEL[l.level]}`}>
@@ -520,6 +720,6 @@ function ClaudeLog({ log, open }: { log: TaskDetail['log']; open: boolean }) {
           </div>
         ))}
       </div>
-    </details>
+    </Section>
   )
 }

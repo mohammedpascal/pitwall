@@ -34,17 +34,30 @@ export function Menu({
   const opener = useRef<HTMLButtonElement>(null)
   const list = useRef<HTMLDivElement>(null)
   // Drawn over the page, so a card that hides its overflow can't cut it off.
-  const [at, setAt] = useState<{ top: number; left?: number; right?: number } | null>(null)
+  const [at, setAt] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+    maxHeight: number
+  } | null>(null)
 
   useLayoutEffect(() => {
-    if (!open || !opener.current) return
+    // Forget the last spot, so the list is measured at full height before it's placed.
+    if (!open) return setAt(null)
+    if (!opener.current) return
     const r = opener.current.getBoundingClientRect()
     const width = list.current?.offsetWidth ?? 192
-    // Under its button, toward whichever side has room.
+    const height = list.current?.offsetHeight ?? 0
+    const below = window.innerHeight - r.bottom - 12
+    const above = r.top - 12
+    // Under its button, or over it when it wouldn't fit below and there's more room above.
+    const up = height > below && above > below
+    const side = r.right - width >= 8 ? { right: window.innerWidth - r.right } : { left: Math.max(8, r.left) }
     setAt(
-      r.right - width >= 8
-        ? { top: r.bottom + 4, right: window.innerWidth - r.right }
-        : { top: r.bottom + 4, left: Math.max(8, r.left) },
+      up
+        ? { bottom: window.innerHeight - r.top + 4, maxHeight: above, ...side }
+        : { top: r.bottom + 4, maxHeight: below, ...side },
     )
   }, [open])
 
@@ -60,7 +73,11 @@ export function Menu({
       if (!inside) setOpen(false)
     }
     // It doesn't follow its button around, so it closes instead.
-    const onMove = () => setOpen(false)
+    const onMove = (e: Event) => {
+      // Scrolling a long list inside the menu keeps it open.
+      if (e.type === 'scroll' && list.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('resize', onMove)
     window.addEventListener('scroll', onMove, true)
@@ -125,12 +142,14 @@ export function Menu({
             onClick={(e) => e.stopPropagation()}
             style={{
               position: 'fixed',
-              top: at?.top ?? -9999,
+              top: at ? at.top : -9999,
+              bottom: at?.bottom,
               left: at?.left,
               right: at?.right,
+              maxHeight: at?.maxHeight,
               visibility: at ? 'visible' : 'hidden',
             }}
-            className="z-50 flex min-w-48 flex-col rounded-xl border border-line bg-surface p-1 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+            className="z-50 flex min-w-48 flex-col overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
           >
             {items.map((item) => (
               <button

@@ -637,8 +637,16 @@ export const getTaskDetail = createServerFn({ method: 'GET' })
     const followUps = tasks
       .list(task.projectId)
       .filter((t) => t.parentId === task.id)
-      .reverse()
-      .map((t) => ({ id: t.id, title: t.title, stage: t.stage }))
+      // Oldest first, read like a thread.
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        stage: t.stage,
+        sourceLabel: t.sourceLabel,
+        createdAt: t.createdAt,
+        original: t.original,
+      }))
     return {
       task,
       log: agent.log(task.id),
@@ -723,18 +731,26 @@ export const setTaskModel = createServerFn({ method: 'POST' })
 
 /** A new task that starts from a copy of this one's conversation. */
 export const followUpTask = createServerFn({ method: 'POST' })
-  .validator((d: { id: string; title: string; how?: TaskStart; model?: ModelChoice }) => d)
+  .validator(
+    (d: { id: string; title: string; attachments?: AttachmentUpload[]; how?: TaskStart; model?: ModelChoice }) => d,
+  )
   .handler(async ({ data }) => {
     const parent = requireTask(data.id)
-    const title = data.title.trim()
+    const uploads = data.attachments ?? []
+    // As with a new task, files alone are enough.
+    const title = data.title.trim() || (uploads.length ? `See ${uploads.map((u) => u.name).join(', ')}` : '')
     if (!title) throw new Error('Say what to follow up with')
+    const id = crypto.randomUUID()
+    const attachments = attachmentStore.save(id, uploads)
     const task = tasks.add(
       {
+        id,
         projectId: parent.projectId,
         title,
         source: 'manual',
         sourceLabel: 'Follow-up',
         parentId: parent.id,
+        ...(attachments.length ? { attachments } : {}),
         ...(parent.sessionId ? { sessionId: parent.sessionId } : {}),
         ...skillOf(title, requireProject(parent.projectId).path),
         // Picked in the follow-up box, else carried on from the task it follows.

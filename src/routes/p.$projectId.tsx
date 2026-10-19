@@ -224,7 +224,9 @@ function Workspace() {
       else if (c.type === 'model') await setTaskModel({ data: { id, model: c.model } })
       else if (c.type === 'follow') {
         // Open the new task, so you see it start.
-        const next = await followUpTask({ data: { id, title: c.note, how: c.how, model: c.model } })
+        const next = await followUpTask({
+          data: { id, title: c.note, attachments: c.attachments, how: c.how, model: c.model },
+        })
         openTask(next)
       }
       else {

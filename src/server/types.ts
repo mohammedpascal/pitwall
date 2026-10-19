@@ -156,7 +156,15 @@ export interface TaskDetail {
   /** Remote Control on this task's conversation; no link yet while it connects. */
   remote: { url: string | null; startedAt: number } | null
   parent: { id: string; title: string } | null
-  followUps: { id: string; title: string; stage: TaskStage }[]
+  /** Oldest first; `original` is what was typed, when it was kept. */
+  followUps: {
+    id: string
+    title: string
+    stage: TaskStage
+    sourceLabel: string
+    createdAt: number
+    original?: string
+  }[]
 }
 
 export interface ProjectSummary {
