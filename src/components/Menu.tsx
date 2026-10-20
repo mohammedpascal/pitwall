@@ -21,6 +21,8 @@ export function Menu({
   size = 'md',
   trigger,
   triggerClassName,
+  footer,
+  badge,
 }: {
   label: string
   items: MenuItem[]
@@ -28,6 +30,10 @@ export function Menu({
   trigger?: ReactNode
   /** The labelled trigger's look, when it should match something else (e.g. a chip). */
   triggerClassName?: string
+  /** A quiet line at the bottom, under a rule: read, not picked, so the arrows skip it. */
+  footer?: ReactNode
+  /** A small dot on the ⋯ button, for something that's on. */
+  badge?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -121,7 +127,7 @@ export function Menu({
             ? `${triggerClassName} ${open ? 'border-ink-faint text-ink' : ''}`
             : trigger
               ? `inline-flex h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft ${open ? 'bg-line-soft' : ''}`
-              : `flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`
+              : `relative flex ${box} items-center justify-center rounded-[10px] text-ink-soft hover:bg-line-soft hover:text-ink ${open ? 'bg-line-soft text-ink' : ''}`
         }
       >
         {trigger ?? (
@@ -131,6 +137,7 @@ export function Menu({
             <circle cx="19" cy="12" r="1.8" />
           </svg>
         )}
+        {badge && <span aria-hidden="true" className="absolute top-1.5 right-1.5 size-2 rounded-full bg-ok" />}
       </button>
       {open &&
         createPortal(
@@ -175,6 +182,11 @@ export function Menu({
                 </span>
               </button>
             ))}
+            {footer && (
+              <div className="mt-1 border-t border-line px-3 pt-2 pb-1.5 text-xs text-ink-faint select-text">
+                {footer}
+              </div>
+            )}
           </div>,
           document.body,
         )}

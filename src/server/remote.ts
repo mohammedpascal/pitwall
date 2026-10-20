@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import os from 'node:os'
 import { MODELS } from '#/lib/models'
 import * as agent from './agent'
 import { killTree } from './processes'
 import type { Task } from './types'
 
 /**
- * Remote Control on a task's Claude conversation: the interactive `claude`
+ * Remote Control on a task's Claude conversation, or on the machine itself: the interactive `claude`
  * runs here with no window, and you drive it from claude.ai or the Claude app.
  * It needs a terminal, so it runs inside `script`, which gives it one. Its stdin
  * is /dev/null: macOS `script` refuses the socket Node uses for a pipe.
@@ -54,13 +55,29 @@ const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 export function start(task: Task, cwd: string): Promise<string> {
   if (!task.sessionId) throw new Error('Claude hasn’t worked on this task yet')
   if (agent.isRunning(task.id)) throw new Error('Claude is still working on this task')
-  const running = remotes.get(task.id)
-  if (running?.url) return Promise.resolve(running.url)
-  if (running) throw new Error('Remote control is still connecting')
-
   const cmd = ['claude', '--resume', task.sessionId, '--remote-control', task.title.slice(0, 60), '--permission-mode', 'default']
   const model = MODELS[task.model ?? 'default'].flag
   if (model) cmd.push('--model', model)
+  return launch(task.id, cmd, cwd, (text) => agent.note(task.id, text, 'ok'))
+}
+
+/** The machine's own session: a fresh `claude` in the projects folder, one per Pitwall. */
+const MACHINE = 'machine'
+
+export const getMachine = () => get(MACHINE)
+
+export const stopMachine = () => stop(MACHINE)
+
+export function startMachine(cwd: string): Promise<string> {
+  const cmd = ['claude', '--remote-control', `Pitwall on ${os.hostname()}`.slice(0, 60), '--permission-mode', 'default']
+  return launch(MACHINE, cmd, cwd, () => {})
+}
+
+function launch(key: string, cmd: string[], cwd: string, note: (text: string) => void): Promise<string> {
+  const running = remotes.get(key)
+  if (running?.url) return Promise.resolve(running.url)
+  if (running) throw new Error('Remote control is still connecting')
+
   // BSD script (macOS) takes the command as arguments; util-linux wants one string.
   const args =
     process.platform === 'darwin' ? ['-q', '/dev/null', ...cmd] : ['-qfc', cmd.map(quote).join(' '), '/dev/null']
@@ -71,8 +88,8 @@ export function start(task: Task, cwd: string): Promise<string> {
     detached: process.platform !== 'win32',
   })
   const r: Remote = { child, url: null, startedAt: Date.now() }
-  remotes.set(task.id, r)
-  agent.note(task.id, 'Starting remote control…', 'ok')
+  remotes.set(key, r)
+  note('Starting remote control…')
 
   return new Promise((resolve, reject) => {
     let seen = ''
@@ -93,7 +110,7 @@ export function start(task: Task, cwd: string): Promise<string> {
       if (!id) return
       r.url = `https://claude.ai/code/${id}`
       clearTimeout(timer)
-      agent.note(task.id, `Remote control is on: ${r.url}`, 'ok')
+      note(`Remote control is on: ${r.url}`)
       resolve(r.url)
     }
     child.stdout?.on('data', onData)
@@ -101,13 +118,13 @@ export function start(task: Task, cwd: string): Promise<string> {
 
     child.on('error', (e) => {
       clearTimeout(timer)
-      remotes.delete(task.id)
+      remotes.delete(key)
       reject(e)
     })
     child.on('close', () => {
       clearTimeout(timer)
-      if (remotes.get(task.id) === r) remotes.delete(task.id)
-      if (r.url) agent.note(task.id, 'Remote control ended.', 'ok')
+      if (remotes.get(key) === r) remotes.delete(key)
+      if (r.url) note('Remote control ended.')
       else reject(new Error('Remote control stopped before it connected'))
     })
   })

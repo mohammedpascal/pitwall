@@ -20,6 +20,7 @@ import {
   removeProject as removeFromConfig,
   serviceCwd,
   updateProject,
+  version,
 } from './config'
 import { expoQr, isExpoApp } from './expo'
 import { launch, launchAll } from './launch'
@@ -804,6 +805,25 @@ export const remoteTask = createServerFn({ method: 'POST' })
     const project = findProject(task.projectId)
     if (!project) throw new Error('This task’s project is gone')
     return remote.start(task, project.path)
+  })
+
+/** The "…" menu: the machine's Remote Control session, and which Pitwall this is. */
+export const getMachineRemote = createServerFn({ method: 'GET' }).handler(async () => ({
+  remote: remote.getMachine(),
+  version: version(),
+}))
+
+/** One machine session per Pitwall: turning it on again hands back the same link. */
+export const machineRemote = createServerFn({ method: 'POST' })
+  .validator((d: { on: boolean }) => d)
+  .handler(async ({ data }) => {
+    if (!data.on) {
+      remote.stopMachine()
+      return null
+    }
+    const dir = projectsDir()
+    fs.mkdirSync(dir, { recursive: true })
+    return remote.startMachine(dir)
   })
 
 export const stopTask = createServerFn({ method: 'POST' })

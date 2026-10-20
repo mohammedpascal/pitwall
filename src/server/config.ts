@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -61,6 +62,29 @@ export const setupSeen = () => readRaw().setupSeen === true
 
 /** Where projects go: PITWALL_PROJECTS, else ~/projects on a cloud machine and ~/src here. */
 export const projectsDir = () => expand(process.env.PITWALL_PROJECTS?.trim() || (isCloud() ? '~/projects' : '~/src'))
+
+let versionCache: string | null = null
+
+/**
+ * The running version: the VERSION file a release ships next to server.mjs (which
+ * `pitwall status` reads too), else "dev" and the commit when run from a checkout.
+ */
+export function version() {
+  if (versionCache) return versionCache
+  const app = process.argv[1] ? path.dirname(path.resolve(process.argv[1])) : ROOT
+  for (const dir of [app, ROOT]) {
+    try {
+      const v = fs.readFileSync(path.join(dir, 'VERSION'), 'utf8').trim()
+      if (v) return (versionCache = v)
+    } catch {}
+  }
+  try {
+    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
+    return (versionCache = sha ? `dev ${sha}` : 'dev')
+  } catch {
+    return (versionCache = 'unknown')
+  }
+}
 
 /** The sample project is made once; removing it doesn't bring it back. */
 export const helloSeeded = () => readRaw().helloSeeded === true

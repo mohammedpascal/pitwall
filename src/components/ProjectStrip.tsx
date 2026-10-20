@@ -1,9 +1,13 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { errorMessage } from '#/lib/errors'
+import { showToast } from '#/lib/toast'
+import { getMachineRemote, machineRemote } from '#/server/fns'
 import type { ProjectSummary } from '#/server/types'
 import { PlusIcon } from './icons'
-import { Menu } from './Menu'
+import { Menu, type MenuItem } from './Menu'
 import { AddProjectDialog } from './OpenProject'
+import { QrCode } from './QrCode'
 
 /** What needs you first, then what's running, then the rest; config order within each. */
 const rank = (p: ProjectSummary) => (p.needsYou > 0 ? 0 : p.running > 0 ? 1 : 2)
@@ -21,7 +25,7 @@ export function ProjectStrip({
 }: {
   projects: ProjectSummary[]
   current: string
-  /** Behind a login: offer Setup and Sign out. */
+  /** Behind a login: the menu also offers Setup and Sign out. */
   cloud?: boolean
 }) {
   const navigate = useNavigate()
@@ -70,11 +74,53 @@ export function ProjectStrip({
     return () => resized.disconnect()
   }, [current, ids])
 
+  // The machine's Remote Control session: quick checks while it connects, slow ones to notice it ending.
+  const [machine, setMachine] = useState<Awaited<ReturnType<typeof getMachineRemote>> | null>(null)
+  const remote = machine?.remote ?? null
+  const refreshMachine = () =>
+    getMachineRemote()
+      .then(setMachine)
+      .catch(() => {})
+  const connecting = !!remote && !remote.url
+  useEffect(() => {
+    void refreshMachine()
+    const t = setInterval(() => void refreshMachine(), connecting ? 1500 : 15_000)
+    return () => clearInterval(t)
+  }, [connecting])
+
+  async function setRemote(on: boolean) {
+    try {
+      const done = machineRemote({ data: { on } })
+      // It takes a few seconds to connect; show it connecting meanwhile.
+      setTimeout(() => void refreshMachine(), 300)
+      await done
+    } catch (e) {
+      showToast(errorMessage(e))
+    }
+    await refreshMachine()
+  }
+
+  const pitwallItems: MenuItem[] = [
+    remote
+      ? { label: 'Stop remote control', onSelect: () => void setRemote(false) }
+      : {
+          label: 'Remote control this machine',
+          hint: 'Drive it from claude.ai or the Claude app',
+          onSelect: () => void setRemote(true),
+        },
+    ...(cloud
+      ? [
+          { label: 'Set up this machine', onSelect: () => void navigate({ to: '/setup' }) },
+          { label: 'Sign out', onSelect: () => signOut.current?.submit() },
+        ]
+      : []),
+  ]
+
   const more = sorted.filter((p) => hidden.includes(p.id))
   // Tabs on one rule: the project you're in is the bold one, underlined where it meets the page.
   const tab = 'relative flex h-10 flex-none items-center gap-2 px-3 text-[14px]'
 
-  return (
+  const nav = (
     <nav aria-label="Projects" className="flex min-w-0 items-center gap-2 border-b border-line">
       <div
         ref={strip}
@@ -139,18 +185,47 @@ export function ProjectStrip({
         <PlusIcon />
       </button>
       <AddProjectDialog open={adding} onClose={() => setAdding(false)} />
-      {cloud && (
-        <>
-          <Menu
-            label="Pitwall"
-            items={[
-              { label: 'Set up this machine', onSelect: () => void navigate({ to: '/setup' }) },
-              { label: 'Sign out', onSelect: () => signOut.current?.submit() },
-            ]}
-          />
-          <form ref={signOut} method="post" action="/api/auth/logout" hidden />
-        </>
-      )}
+      <Menu
+        label="Pitwall"
+        items={pitwallItems}
+        badge={!!remote}
+        footer={machine ? `Pitwall ${machine.version}` : undefined}
+      />
+      {cloud && <form ref={signOut} method="post" action="/api/auth/logout" hidden />}
     </nav>
+  )
+
+  return (
+    <>
+      {nav}
+      {remote && (
+        <div className="flex items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-[13px]">
+          {remote.url && <QrCode value={remote.url} size={88} label="Scan to drive this machine from your phone" />}
+          <div className="flex min-w-0 flex-grow flex-col gap-1">
+            <span className="inline-flex items-center gap-2 font-medium">
+              <span aria-hidden="true" className={`size-2 rounded-full bg-ok ${remote.url ? '' : 'animate-pulse'}`} />
+              {remote.url ? 'Remote control on this machine' : 'Connecting…'}
+            </span>
+            {remote.url && (
+              <a
+                href={remote.url}
+                target="_blank"
+                rel="noreferrer"
+                className="self-start text-ink-soft hover:text-ink hover:underline"
+              >
+                Open in Claude ↗
+              </a>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void setRemote(false)}
+            className="h-9 flex-none rounded-lg border border-line px-3 font-medium hover:bg-line-soft"
+          >
+            Stop
+          </button>
+        </div>
+      )}
+    </>
   )
 }
