@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ProjectSummary } from '#/server/types'
 import { PlusIcon } from './icons'
 import { Menu } from './Menu'
+import { AddProjectDialog } from './OpenProject'
 
 /** What needs you first, then what's running, then the rest; config order within each. */
 const rank = (p: ProjectSummary) => (p.needsYou > 0 ? 0 : p.running > 0 ? 1 : 2)
@@ -27,6 +28,7 @@ export function ProjectStrip({
   const sorted = projects.map((p, i) => ({ p, i })).sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i).map((x) => x.p)
   const strip = useRef<HTMLDivElement>(null)
   const signOut = useRef<HTMLFormElement>(null)
+  const [adding, setAdding] = useState(false)
   // Tabs cut off at the edge; they're also in "+N more".
   const [hidden, setHidden] = useState<string[]>([])
 
@@ -127,14 +129,16 @@ export function ProjectStrip({
           }))}
         />
       )}
-      <Link
-        to="/new"
+      <button
+        type="button"
+        onClick={() => setAdding(true)}
         aria-label="Add project"
         title="Add project"
         className="flex size-9 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
       >
         <PlusIcon />
-      </Link>
+      </button>
+      <AddProjectDialog open={adding} onClose={() => setAdding(false)} />
       {cloud && (
         <>
           <Menu
