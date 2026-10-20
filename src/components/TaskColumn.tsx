@@ -180,15 +180,13 @@ export function TaskColumn({
                 <button
                   type="button"
                   onClick={() => onOpen(t)}
-                  className="flex w-full min-w-0 flex-col py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
+                  title={t.closedReason ? `${t.title}\n${t.closedReason}` : t.title}
+                  className="flex w-full min-w-0 items-baseline gap-2 py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
                 >
-                  <span className="flex w-full min-w-0 items-baseline gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">{t.title}</span>
-                    {closedAt(t) !== undefined && (
-                      <span className="flex-none text-xs text-ink-faint">{ago(closedAt(t)!, now)}</span>
-                    )}
-                  </span>
-                  {t.closedReason && <span className="w-full truncate text-xs text-ink-faint">{t.closedReason}</span>}
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">{t.title}</span>
+                  {closedAt(t) !== undefined && (
+                    <span className="flex-none text-xs text-ink-faint">{ago(closedAt(t)!, now)}</span>
+                  )}
                 </button>
               </li>
             ))}
