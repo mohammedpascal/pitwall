@@ -4,6 +4,8 @@ import { version } from './config'
 
 const REPO = process.env.PITWALL_REPO?.trim() || 'mohammedpascal/pitwall'
 const EVERY = 6 * 60 * 60 * 1000
+/** Asking by hand checks again, but no more than once a minute, to stay well under GitHub's limits. */
+const FORCED = 60 * 1000
 /** The installer's root unit watches for this file and runs `pitwall update` when it appears. */
 const REQUEST = path.join(process.cwd(), 'update-requested')
 const WATCHER = '/etc/systemd/system/pitwall-update.path'
@@ -39,11 +41,11 @@ async function check() {
 
 /**
  * The newest release, when it's newer than this one. Only released builds check
- * (a dev checkout's version isn't vX.Y.Z); the answer is kept for six hours.
+ * (a dev checkout's version isn't vX.Y.Z); the answer is kept for six hours, or a minute with `force`.
  */
-export async function availableUpdate(): Promise<string | null> {
+export async function availableUpdate(force = false): Promise<string | null> {
   if (!parse(version())) return null
-  if (Date.now() - checked > EVERY) {
+  if (Date.now() - checked > (force ? FORCED : EVERY)) {
     pending ??= check().finally(() => (pending = null))
     await pending
   }

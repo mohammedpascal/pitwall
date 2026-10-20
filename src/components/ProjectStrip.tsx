@@ -2,7 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '#/lib/errors'
 import { showToast } from '#/lib/toast'
-import { getMachineRemote, machineRemote, updatePitwall } from '#/server/fns'
+import { checkForUpdate, getMachineRemote, machineRemote, updatePitwall } from '#/server/fns'
 import type { ProjectSummary } from '#/server/types'
 import { PlusIcon } from './icons'
 import { Menu, type MenuItem } from './Menu'
@@ -93,6 +93,20 @@ export function ProjectStrip({
   useEffect(() => {
     if (updatingFrom && machine && machine.version !== updatingFrom) window.location.reload()
   }, [updatingFrom, machine])
+
+  // "Check for updates" by the version: checking, then up to date (or the update shows up).
+  const [checking, setChecking] = useState<'checking' | 'checked' | null>(null)
+  async function checkNow() {
+    setChecking('checking')
+    try {
+      const latest = await checkForUpdate()
+      setMachine((m) => (m ? { ...m, latest } : m))
+      setChecking('checked')
+    } catch (e) {
+      setChecking(null)
+      showToast(errorMessage(e))
+    }
+  }
 
   async function runUpdate() {
     if (!machine) return
@@ -217,9 +231,27 @@ export function ProjectStrip({
         items={pitwallItems}
         badge={!!remote || !!machine?.latest}
         footer={
-          machine
-            ? `Pitwall ${machine.version}${updatingFrom ? ' · updating…' : machine.latest ? ` · ${machine.latest} available` : ''}`
-            : undefined
+          machine ? (
+            <>
+              Pitwall {machine.version}
+              {updatingFrom ? (
+                ' · updating…'
+              ) : machine.latest ? (
+                ` · ${machine.latest} available`
+              ) : checking === 'checking' ? (
+                ' · checking…'
+              ) : checking === 'checked' ? (
+                ' · up to date'
+              ) : (
+                <>
+                  {' · '}
+                  <button type="button" onClick={() => void checkNow()} className="underline hover:text-ink">
+                    Check for updates
+                  </button>
+                </>
+              )}
+            </>
+          ) : undefined
         }
       />
       {cloud && <form ref={signOut} method="post" action="/api/auth/logout" hidden />}

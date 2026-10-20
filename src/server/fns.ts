@@ -848,6 +848,9 @@ export const getMachineRemote = createServerFn({ method: 'GET' }).handler(async 
   canUpdate: update.canUpdate(),
 }))
 
+/** "Check for updates" in the menu: asks GitHub now instead of waiting for the next check. */
+export const checkForUpdate = createServerFn({ method: 'POST' }).handler(() => update.availableUpdate(true))
+
 /** Asks the installer's root unit to update and restart Pitwall. */
 export const updatePitwall = createServerFn({ method: 'POST' }).handler(async () => {
   update.requestUpdate()
