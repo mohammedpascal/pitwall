@@ -121,7 +121,7 @@ export function OutputPanel({
             const el = e.currentTarget
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
           }}
-          className="min-h-[360px] flex-[1_1_0px] overflow-auto px-4 pt-3.5 pb-20 font-mono text-[12.5px] leading-[1.75]"
+          className="min-h-[360px] flex-[1_1_0px] overflow-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.75]"
         >
           {logs.length === 0 ? (
             <p className="text-ink-soft">Nothing yet. Start {service.name} and its output shows up here.</p>

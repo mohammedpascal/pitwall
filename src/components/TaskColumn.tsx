@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { read, write } from '#/lib/storage'
 import type { AttachmentUpload, Task, TaskStart } from '#/server/types'
 import { STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/lib/stages'
-import { ArrowUpIcon, PlusIcon } from './icons'
+import { ArrowUpIcon, ExpandIcon, PlusIcon, ShrinkIcon } from './icons'
 import { AttachButton, AttachmentChips, useAttachments } from './Attachments'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker, useModel } from './ModelPicker'
@@ -9,15 +11,55 @@ import { SkillSuggest, useSkillSuggest } from './SkillSuggest'
 import type { Skill } from '#/server/tools'
 import type { ModelChoice } from '#/lib/models'
 
-/** Tasks, floating bottom right: Done, then one line per open task, then the box to add one. */
-export function TaskDock({
+const WIDTH_KEY = 'pitwall:tasks-width'
+const DEFAULT_WIDTH = 420
+const FULL_KEY = 'pitwall:task-full'
+const MIN_WIDTH = 320
+// The page beside it keeps at least this much, so the preview stays usable.
+const PAGE_ROOM = 480
+
+const clampWidth = (w: number) => Math.round(Math.max(MIN_WIDTH, Math.min(w, window.innerWidth - PAGE_ROOM)))
+
+/** The width you dragged the column to, kept for next time. */
+function useColumnWidth() {
+  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  useEffect(() => {
+    const saved = Number(read(WIDTH_KEY))
+    if (saved > 0) setWidth(clampWidth(saved))
+  }, [])
+  const set = (w: number) => {
+    const next = clampWidth(w)
+    setWidth(next)
+    write(WIDTH_KEY, String(next))
+  }
+  return [width, set] as const
+}
+
+/** Whether an open task fills the window; kept, so it opens the way you last read one. */
+function useFullScreen() {
+  const [full, setFull] = useState(false)
+  useEffect(() => setFull(read(FULL_KEY) === '1'), [])
+  const toggle = () =>
+    setFull((f) => {
+      write(FULL_KEY, f ? '0' : '1')
+      return !f
+    })
+  return [full, toggle] as const
+}
+
+/**
+ * Tasks, on the right of the page: one line per open task, Done, then the box to add one.
+ * An open task takes the column's place until it's closed; the page beside it stays as it is.
+ */
+export function TaskColumn({
   projectName,
   skills = [],
   tasks,
   onAdd,
   onOpen,
   onAction,
-  onReopen,
+  onClose,
+  children,
 }: {
   projectName: string
   /** Offered when a task starts with "/". */
@@ -28,54 +70,145 @@ export function TaskDock({
   onOpen: (task: Task) => void
   /** The line's one button: Plan (or Do it), Review plan or Check it. */
   onAction: (task: Task) => void
-  onReopen: (task: Task) => void
+  /** Back to the list from an open task. */
+  onClose: () => void
+  /** The open task, shown instead of the list. */
+  children?: ReactNode
 }) {
+  const [width, setWidth] = useColumnWidth()
+  const [full, toggleFull] = useFullScreen()
   const open = tasks.filter((t) => !isClosed(t)).sort(byAttention)
   const closed = tasks.filter(isClosed)
+
+  // Close on the left, full screen on the right, and over the page the project in the middle.
+  const bar = (
+    <div className="grid flex-none grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-line-soft bg-surface px-2 py-2">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close task"
+        className="inline-flex h-8 items-center justify-self-start gap-1.5 rounded-lg px-2 text-xs font-semibold text-ink-soft hover:bg-line-soft hover:text-ink"
+      >
+        <span aria-hidden="true">✕</span> Close
+      </button>
+      <span className="truncate text-[13px] font-semibold">{full ? projectName : ''}</span>
+      <button
+        type="button"
+        onClick={toggleFull}
+        aria-label={full ? 'Exit full screen' : 'Full screen'}
+        title={full ? 'Exit full screen' : 'Full screen'}
+        className="flex size-8 items-center justify-center justify-self-end rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+      >
+        {full ? <ShrinkIcon /> : <ExpandIcon />}
+      </button>
+    </div>
+  )
 
   return (
     <aside
       aria-label="Tasks"
-      className="fixed right-4 bottom-4 z-30 flex max-h-[calc(100dvh-2rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_16px_40px_rgba(0,0,0,0.14)]"
+      style={{ width }}
+      className="sticky top-0 flex h-dvh flex-none flex-col self-start border-l border-line bg-surface max-lg:static max-lg:h-auto max-lg:w-full! max-lg:border-t max-lg:border-l-0"
     >
-      {closed.length > 0 && (
-        <details className="group flex-none border-b border-line-soft">
-          <summary className="flex h-10 list-none items-center gap-1.5 px-4 text-[13px] font-semibold text-ink-soft select-none hover:text-ink [&::-webkit-details-marker]:hidden">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-            Done {closed.length}
-          </summary>
-          <ul className="flex max-h-48 flex-col overflow-y-auto pb-1">
-            {closed.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-2 py-1 pr-2 pl-[34px]">
-                <button type="button" onClick={() => onOpen(t)} className="flex min-w-0 flex-col text-left">
-                  <span className="truncate text-[13px] text-ink-soft line-through decoration-ink-faint">{t.title}</span>
-                  {t.closedReason && <span className="truncate text-xs text-ink-faint">{t.closedReason}</span>}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onReopen(t)}
-                  className="h-8 flex-none rounded-lg px-2 text-xs font-medium text-ink-soft hover:bg-line-soft hover:text-ink"
-                >
-                  Reopen
-                </button>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <ResizeHandle width={width} onResize={setWidth} />
 
-      {open.length > 0 && (
-        <ul className="min-h-0 flex-shrink overflow-y-auto">
-          {open.map((t) => (
-            <TaskLine key={t.id} task={t} onOpen={() => onOpen(t)} onAction={() => onAction(t)} />
-          ))}
-        </ul>
-      )}
+      {/* Over everything, so drawn on the page itself: the sticky column would keep it under the tabs. */}
+      {children &&
+        full &&
+        createPortal(
+          <div role="dialog" aria-label="Task" className="fixed inset-0 z-50 flex flex-col bg-surface">
+            {bar}
+            <div className="min-h-0 flex-1 overflow-y-auto py-2">
+              <div className="mx-auto max-w-[1100px]">{children}</div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
-      <AddTask projectName={projectName} skills={skills} onAdd={onAdd} />
+      {children && !full ? (
+        <>
+          {bar}
+          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        </>
+      ) : (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {open.length === 0 ? (
+              <p className="px-4 py-4 text-[13px] text-ink-soft">Nothing needs you.</p>
+            ) : (
+              <ul>
+                {open.map((t) => (
+                  <TaskLine key={t.id} task={t} onOpen={() => onOpen(t)} onAction={() => onAction(t)} />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {closed.length > 0 && (
+            <details className="group flex-none border-t border-line-soft">
+              <summary className="flex h-10 list-none items-center gap-1.5 px-4 text-[13px] font-semibold text-ink-soft select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+                Done {closed.length}
+              </summary>
+              <ul className="flex max-h-48 flex-col overflow-y-auto pb-1">
+                {closed.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpen(t)}
+                      className="flex w-full min-w-0 flex-col py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
+                    >
+                      <span className="w-full truncate text-[13px] text-ink-soft line-through decoration-ink-faint">{t.title}</span>
+                      {t.closedReason && <span className="w-full truncate text-xs text-ink-faint">{t.closedReason}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <div className="flex-none border-t border-line">
+            <AddTask projectName={projectName} skills={skills} onAdd={onAdd} />
+          </div>
+        </>
+      )}
     </aside>
+  )
+}
+
+/** The column's left edge: drag it, or focus it and use the arrow keys; a double-click puts it back. */
+function ResizeHandle({ width, onResize }: { width: number; onResize: (w: number) => void }) {
+  const [dragging, setDragging] = useState(false)
+  const start = useRef({ x: 0, width: 0 })
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize tasks"
+      aria-valuenow={width}
+      tabIndex={0}
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        start.current = { x: e.clientX, width }
+        setDragging(true)
+      }}
+      onPointerMove={(e) => {
+        if (dragging) onResize(start.current.width + start.current.x - e.clientX)
+      }}
+      onPointerUp={() => setDragging(false)}
+      onPointerCancel={() => setDragging(false)}
+      onDoubleClick={() => onResize(DEFAULT_WIDTH)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') onResize(width + 24)
+        else if (e.key === 'ArrowRight') onResize(width - 24)
+        else return
+        e.preventDefault()
+      }}
+      className={`absolute inset-y-0 -left-[3px] z-10 w-1.5 cursor-col-resize max-lg:hidden ${dragging ? 'bg-ink/20' : 'hover:bg-ink/10'}`}
+    />
   )
 }
 

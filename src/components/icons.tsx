@@ -82,6 +82,18 @@ export const PaperclipIcon = ({ size = 16, className }: P) => (
   </svg>
 )
 
+export const ExpandIcon = ({ size = 14, className }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} className={className} aria-hidden="true">
+    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+  </svg>
+)
+
+export const ShrinkIcon = ({ size = 14, className }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} className={className} aria-hidden="true">
+    <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+  </svg>
+)
+
 export const sourceIcon = {
   manual: PenIcon,
   terminal: TerminalIcon,

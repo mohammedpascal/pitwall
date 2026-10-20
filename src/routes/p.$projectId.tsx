@@ -4,7 +4,7 @@ import { Menu } from '#/components/Menu'
 import { OutputPanel } from '#/components/OutputPanel'
 import { ProjectStrip } from '#/components/ProjectStrip'
 import { ServiceActions, ServiceTab, STATUS } from '#/components/ServiceCard'
-import { TaskDock } from '#/components/TaskDock'
+import { TaskColumn } from '#/components/TaskColumn'
 import { TaskView, type TaskCommand } from '#/components/TaskView'
 import { ToolsView } from '#/components/ToolsView'
 import { FolderInput } from '#/components/ui'
@@ -130,7 +130,7 @@ function Workspace() {
     void navigate({ to: '/p/$projectId', params: { projectId }, search: id ? { task: id } : {}, replace: true })
   }
 
-  // Escape collapses an open task, unless something inside it used the key (a menu, a draft).
+  // Escape closes an open task, unless something inside it used the key (a menu, a draft).
   useEffect(() => {
     if (!openTaskId) return
     const onKey = (e: KeyboardEvent) => {
@@ -228,7 +228,6 @@ function Workspace() {
       else if (c.type === 'confirm') await confirmTask({ data: { id, ok: c.ok, note: c.note } })
       else if (c.type === 'stop') await stopTask({ data: { id } })
       else if (c.type === 'restart') await restartTask({ data: { id } })
-      else if (c.type === 'reopen') await reopenTask({ data: { id } })
       else if (c.type === 'remote') await remoteTask({ data: { id, on: c.on } })
       else if (c.type === 'answer') await answerTask({ data: { id, decision: c.decision } })
       else if (c.type === 'model') await setTaskModel({ data: { id, model: c.model } })
@@ -469,55 +468,44 @@ function Workspace() {
           </div>
         </main>
 
-        {!openTaskId && (
-          <TaskDock
-            projectName={state.name}
-            skills={skills}
-            tasks={state.tasks}
-            onAdd={async (title, attachments, how, model) => {
-              try {
-                await addTask({ data: { projectId, title, attachments, how, model } })
-                return true
-              } catch (e) {
-                showToast(errorMessage(e))
-                return false
-              } finally {
-                void refresh()
-              }
-            }}
-            onOpen={(task) => openTask(task.id)}
-            onAction={(task) => {
-              openTask(task.id)
-              // Plan straight away (or just do a simple one); steering is in the task view.
-              if (task.stage === 'ready') void taskCommand(task, task.simple ? { type: 'do' } : { type: 'plan' })
-            }}
-            onReopen={(task) => void taskCommand(task, { type: 'reopen' })}
-          />
-        )}
-
-        {/* An open task takes the right of the page, as wide as a plan reads well; the app stays on the left. */}
-        {openTaskId && (
-          <div
-            role="dialog"
-            aria-label="Task"
-            className="fixed inset-y-0 right-0 z-40 flex w-[min(1040px,100vw)] flex-col overflow-y-auto border-l border-line bg-bg px-8 py-5 shadow-[-24px_0_48px_rgba(0,0,0,0.12)] max-sm:px-4"
-          >
-            {taskDetail?.task.id === openTaskId ? (
+        <TaskColumn
+          projectName={state.name}
+          skills={skills}
+          tasks={state.tasks}
+          onAdd={async (title, attachments, how, model) => {
+            try {
+              await addTask({ data: { projectId, title, attachments, how, model } })
+              return true
+            } catch (e) {
+              showToast(errorMessage(e))
+              return false
+            } finally {
+              void refresh()
+            }
+          }}
+          onOpen={(task) => openTask(task.id)}
+          onAction={(task) => {
+            openTask(task.id)
+            // Plan straight away (or just do a simple one); steering is in the task view.
+            if (task.stage === 'ready') void taskCommand(task, task.simple ? { type: 'do' } : { type: 'plan' })
+          }}
+          onClose={() => openTask(null)}
+        >
+          {openTaskId &&
+            (taskDetail?.task.id === openTaskId ? (
               <TaskView
                 detail={taskDetail}
                 now={now}
                 version={planVersion}
                 onVersion={setPlanVersion}
                 onCommand={(c) => taskCommand(taskDetail.task, c)}
-                onClose={() => openTask(null)}
                 onOpenTask={(id) => openTask(id)}
                 skills={skills}
               />
             ) : (
               <p className="py-10 text-center text-ink-soft">Opening the task…</p>
-            )}
-          </div>
-        )}
+            ))}
+        </TaskColumn>
       </div>
     </div>
   )

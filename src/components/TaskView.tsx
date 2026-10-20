@@ -20,7 +20,6 @@ export type TaskCommand =
   | { type: 'confirm'; ok: boolean; note?: string }
   | { type: 'dismiss' }
   | { type: 'done' }
-  | { type: 'reopen' }
   | { type: 'stop' }
   | { type: 'restart' }
   | { type: 'follow'; note: string; how: TaskStart; model: ModelChoice; attachments?: AttachmentUpload[] }
@@ -35,7 +34,6 @@ export function TaskView({
   version,
   onVersion,
   onCommand,
-  onClose,
   onOpenTask,
   skills = [],
 }: {
@@ -45,7 +43,6 @@ export function TaskView({
   version: number | null
   onVersion: (v: number | null) => void
   onCommand: (c: TaskCommand) => Promise<void>
-  onClose: () => void
   onOpenTask: (id: string) => void
   /** Offered in the follow-up box when it starts with "/". */
   skills?: Skill[]
@@ -192,9 +189,7 @@ export function TaskView({
             },
           ]
         : []),
-    ...(!isClosed(t)
-      ? [{ label: 'Mark done', onSelect: () => void send({ type: 'done' }) }]
-      : [{ label: 'Reopen', onSelect: () => void send({ type: 'reopen' }) }]),
+    ...(!isClosed(t) ? [{ label: 'Mark done', onSelect: () => void send({ type: 'done' }) }] : []),
     ...(!stage.working
       ? [
           {
@@ -356,9 +351,7 @@ export function TaskView({
             >
               {output(`plan-${p.v}`)}
               {open && plan && (
-                <div className="overflow-hidden rounded-xl border border-line">
-                  <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />
-                </div>
+                <PlanFrame title={`Plan v${plan.v}`} html={plan.html} />
               )}
             </Event>
           ),
@@ -459,17 +452,7 @@ export function TaskView({
 
   return (
     <section aria-labelledby="task-h" className="flex flex-grow flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="-ml-2 inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase hover:bg-line-soft hover:text-ink"
-        >
-          Collapse <span aria-hidden="true">→</span>
-        </button>
-      </div>
-
-      <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
+      <div className="flex flex-col">
         <header className="flex flex-col gap-3 border-b border-line p-5">
           <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
             <span className="inline-flex min-w-0 items-center gap-1.5 truncate">

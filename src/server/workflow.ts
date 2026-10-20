@@ -193,10 +193,11 @@ const PLAN_UNREAD_SCHEMA = {
 }
 
 const PLAN_RULES = `Write the plan as one complete HTML page (inline CSS, no external files or scripts, no web fonts).
-Style: white background, black text, greys for secondary text, system sans-serif, generous spacing, 8–12px rounded corners, thin #e5e5e5 borders. Minimal, no colours except a quiet red for "before" problems and green for "after".
+Pitwall shows the page inside its own, so give the body and any page wrapper no margin, padding, max-width or background.
+Style: black text, greys for secondary text, system sans-serif, generous spacing, thin #e5e5e5 borders. Minimal, no colours except a quiet red for "before" problems and green for "after".
 Sections, in order:
 1. Problem — one or two sentences.
-2. Before / After — side by side (stacking on narrow screens). For anything visible, draw small HTML mockups of the affected screen as it is now and as it will be, using the app's real labels and layout read from the code. For backend changes, draw the flow as boxes and arrows instead.
+2. Before / After — exactly this markup, with no CSS of your own for these elements (Pitwall lays them out): <div class="ba"><section class="before"><h3><span>Before</span></h3>…</section><section class="after"><h3><span>After</span></h3>…</section></div>. Inside each, with no card around it: for anything visible, a small HTML mockup of the affected screen as it is now and as it will be, using the app's real labels and layout read from the code; for backend changes, the flow as boxes and arrows.
 3. Steps — a short numbered list of what will change.
 4. Files — the files that will be touched, in monospace.
 5. Risks — anything that could break, or "None expected".
