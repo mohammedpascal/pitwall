@@ -21,7 +21,9 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run build
       # The installer runs `npm ci --omit=dev` on the server, so native parts match its CPU.
-      - run: tar -czf pitwall.tar.gz dist server.mjs scripts package.json package-lock.json
+      # `pitwall status` shows the version from this file.
+      - run: echo "$GITHUB_REF_NAME" > VERSION
+      - run: tar -czf pitwall.tar.gz dist server.mjs scripts package.json package-lock.json VERSION
       - uses: softprops/action-gh-release@v2
         with:
           files: pitwall.tar.gz

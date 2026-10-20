@@ -181,6 +181,7 @@ case "\${1:-help}" in
   logs)    journalctl -u pitwall -f -n 100 ;;
   restart) systemctl restart pitwall ;;
   status)
+    echo "Version   \$(cat $APP/VERSION 2>/dev/null || echo unknown)"
     echo "Pitwall   $APP"
     echo "Projects  $PROJECTS"
     echo "Data      $DATA"
