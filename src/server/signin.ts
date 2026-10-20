@@ -97,6 +97,20 @@ export async function status(): Promise<SignInStatus> {
   }
 }
 
+// ── Signing out ─────────────────────────────────────────────────────────────
+
+/** Logs this machine's claude or gh out, ending a sign-in still in progress too. */
+export async function signOut(p: Provider) {
+  const flow = flows.get(p)
+  if (flow) killTree(flow.child, 'SIGTERM')
+  flows.delete(p)
+  const { ok, out } = await (p === 'claude'
+    ? run('claude', ['auth', 'logout'])
+    : run('gh', ['auth', 'logout', '--hostname', 'github.com']))
+  cached = null
+  if (!ok) throw new Error(lastLine(out) ?? `Couldn’t sign out of ${p === 'claude' ? 'Claude' : 'GitHub'}`)
+}
+
 // ── Signing in ──────────────────────────────────────────────────────────────
 
 function begin(p: Provider, cmd: string, args: string[], env: NodeJS.ProcessEnv = {}): Flow {

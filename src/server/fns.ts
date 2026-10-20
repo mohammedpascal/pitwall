@@ -261,6 +261,14 @@ export const startSignIn = createServerFn({ method: 'POST' })
     data.to === 'claude' ? { url: await signin.startClaude(), code: null } : { url: null, code: await signin.startGithub() },
   )
 
+/** On a laptop these are your own terminal's logins, so only a cloud machine signs out from here. */
+export const signOutOf = createServerFn({ method: 'POST' })
+  .validator((d: { to: signin.Provider }) => d)
+  .handler(async ({ data }) => {
+    if (!isCloud()) throw new Error('Only a cloud machine signs out here')
+    await signin.signOut(data.to)
+  })
+
 export const finishClaudeSignIn = createServerFn({ method: 'POST' })
   .validator((d: { code: string }) => d)
   .handler(async ({ data }) => {

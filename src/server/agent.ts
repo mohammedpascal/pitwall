@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
+import { CLAUDE_SIGNED_OUT } from '#/lib/settings'
 import type { LogLevel, LogLine } from './types'
 
 /**
@@ -104,6 +105,10 @@ function describeTool(name: string, input: Record<string, unknown>, cwd: string)
 }
 
 export class AgentError extends Error {}
+
+/** The CLI's ways of saying it has no login, which it follows with "run /login", a terminal step. */
+const SIGNED_OUT = /not logged in|please run \/login|invalid api key|oauth token has expired/i
+const failed = (text: string) => new AgentError(SIGNED_OUT.test(text) ? CLAUDE_SIGNED_OUT : text)
 
 /** Pitwall may itself run inside a Claude Code session; a `claude` it starts is its own. */
 export function childEnv() {
@@ -258,8 +263,8 @@ export async function runClaude(opts: {
       j.child = null
       j.asking = null
       if (signal) return reject(new AgentError('Stopped'))
-      if (failure) return reject(new AgentError(failure))
-      if (code !== 0) return reject(new AgentError(stderr.trim().split('\n').at(-1) || `Claude exited with code ${code}`))
+      if (failure) return reject(failed(failure))
+      if (code !== 0) return reject(failed(stderr.trim().split('\n').at(-1) || `Claude exited with code ${code}`))
       resolve({ sessionId, output, text, changedFiles: [...changed], denials })
     })
   })

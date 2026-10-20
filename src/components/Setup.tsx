@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { errorMessage } from '#/lib/errors'
 import { closeSettings, useSettingsOpen } from '#/lib/settings'
-import { checkDomain, finishClaudeSignIn, getSetup, setLoginPassword, startSignIn, switchDomain } from '#/server/fns'
+import { checkDomain, finishClaudeSignIn, getSetup, setLoginPassword, signOutOf, startSignIn, switchDomain } from '#/server/fns'
 import { ErrorNote } from './ui'
 
 export type SetupState = Awaited<ReturnType<typeof getSetup>>
@@ -69,7 +69,7 @@ const later =
 /** The three things a cloud machine needs: Claude, GitHub and a dev domain. Each row turns green when done. */
 export function Setup({ initial }: { initial: SetupState }) {
   const [state, setState] = useState(initial)
-  const [busy, setBusy] = useState<'claude' | 'github' | 'code' | null>(null)
+  const [busy, setBusy] = useState<'claude' | 'github' | 'code' | 'signout' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState('')
 
@@ -127,12 +127,36 @@ export function Setup({ initial }: { initial: SetupState }) {
     setBusy(null)
   }
 
+  async function signOut(to: 'claude' | 'github') {
+    setBusy('signout')
+    setError(null)
+    try {
+      await signOutOf({ data: { to } })
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+    await refresh()
+    setBusy(null)
+  }
+
   const { claude, github } = state.signIn
+  // Only a cloud machine's: on a laptop these are your terminal's own logins.
+  const undo = (to: 'claude' | 'github', label: string) =>
+    state.cloud && (
+      <button
+        type="button"
+        onClick={() => void signOut(to)}
+        disabled={!!busy}
+        className="text-[13px] font-medium text-ink-soft hover:text-ink hover:underline disabled:opacity-50"
+      >
+        {label}
+      </button>
+    )
 
   return (
     <section className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 pt-1">
 
-      <Row name="Claude" why="For tasks" ok={claude.ok} who={claude.who}>
+      <Row name="Claude" why="For tasks" ok={claude.ok} who={claude.who} action={undo('claude', 'Sign out')}>
         {claude.url ? (
           <form
             onSubmit={(e) => {
@@ -174,7 +198,7 @@ export function Setup({ initial }: { initial: SetupState }) {
         )}
       </Row>
 
-      <Row name="GitHub" why="For cloning and pushing" ok={github.ok} who={github.who}>
+      <Row name="GitHub" why="For cloning and pushing" ok={github.ok} who={github.who} action={undo('github', 'Disconnect')}>
         {github.code && github.url ? (
           <div className="flex w-full flex-col gap-2">
             <div className="flex items-center gap-2">

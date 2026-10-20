@@ -2,21 +2,21 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Setup } from '#/components/Setup'
 import { PageHeader } from '#/components/ui'
-import { finishSetup, getProjects, getSetup } from '#/server/fns'
+import { finishSetup, getSetup } from '#/server/fns'
 
 export const Route = createFileRoute('/setup')({
   loader: async () => {
-    const [setup, projects] = await Promise.all([getSetup(), getProjects()])
+    const setup = await getSetup()
     // Only a new cloud machine starts here; after that, Settings opens as a dialog.
     if (!setup.cloud) throw redirect({ to: '/' })
-    return { setup, projects }
+    return { setup }
   },
   head: () => ({ meta: [{ title: 'Set up · Pitwall' }] }),
   component: SetupPage,
 })
 
 function SetupPage() {
-  const { setup, projects } = Route.useLoaderData()
+  const { setup } = Route.useLoaderData()
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
 
@@ -28,7 +28,8 @@ function SetupPage() {
 
   return (
     <div className="min-h-screen bg-bg text-sm text-ink">
-      <PageHeader back={projects.length > 0} />
+      {/* No way back but Continue: until then, / brings you here again. */}
+      <PageHeader />
       <main className="mx-auto flex w-full max-w-[620px] flex-col gap-6 px-6 pt-24 pb-16 max-sm:pt-12">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-[-0.015em]">Set up this machine</h1>

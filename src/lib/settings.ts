@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from 'react'
 
+/** A task's error when Claude isn't signed in here; the task offers Settings for it. */
+export const CLAUDE_SIGNED_OUT = 'Claude isn’t signed in on this machine.'
+
 let open = false
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((l) => l())

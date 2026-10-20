@@ -6,6 +6,7 @@ import { read, write } from '#/lib/storage'
 import { STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, ArrowUpIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
+import { CLAUDE_SIGNED_OUT, openSettings } from '#/lib/settings'
 import { LEVEL } from './OutputPanel'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker } from './ModelPicker'
@@ -493,7 +494,16 @@ export function TaskView({
         {t.error && (
           <div className="flex items-center gap-2.5 border-b border-line bg-err-tint px-5 py-3 text-[13px]">
             <AlertIcon className="flex-none text-err" />
-            <span>{t.error}</span>
+            <span className="min-w-0 flex-1">{t.error}</span>
+            {t.error.includes(CLAUDE_SIGNED_OUT) && (
+              <button
+                type="button"
+                onClick={openSettings}
+                className="h-8 flex-none rounded-lg bg-ink px-3 text-xs font-semibold text-white hover:bg-ink/85"
+              >
+                Sign in
+              </button>
+            )}
           </div>
         )}
 
