@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Menu } from '#/components/Menu'
 import { OutputPanel } from '#/components/OutputPanel'
 import { ProjectStrip } from '#/components/ProjectStrip'
@@ -80,6 +80,9 @@ function pageTitle(name: string, projects: { needsYou: number }[]) {
 function Workspace() {
   const { projectId } = Route.useParams()
   const { task: openTaskId, tools: toolsOpen } = Route.useSearch()
+  // The task on screen now, for work that finishes after you may have opened another.
+  const shownTask = useRef(openTaskId)
+  shownTask.current = openTaskId
   const initial = Route.useLoaderData()
   const navigate = useNavigate()
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
@@ -245,6 +248,7 @@ function Workspace() {
           label: 'Undo',
           run: async () => {
             await reopenTask({ data: { id, stage } })
+            openTask(id)
             void refresh()
           },
         })
@@ -254,10 +258,14 @@ function Workspace() {
           label: 'Undo',
           run: async () => {
             await reopenTask({ data: { id, stage: 'check' } })
+            openTask(id)
             void refresh()
           },
         })
       }
+      // A finished task closes, back to the list, unless you've opened another meanwhile.
+      const finished = c.type === 'done' || c.type === 'dismiss' || (c.type === 'confirm' && c.ok)
+      if (finished && shownTask.current === id) openTask(null)
       if (c.type === 'plan' || (c.type === 'confirm' && !c.ok)) setPlanVersion(null)
     } catch (e) {
       showToast(errorMessage(e))
