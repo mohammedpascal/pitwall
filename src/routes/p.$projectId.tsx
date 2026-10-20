@@ -38,6 +38,7 @@ import {
   stopAll,
   stopService,
   stopTask,
+  setProjectPermissions,
   setTaskModel,
   syncProject,
   updateProjectInfo,
@@ -274,7 +275,7 @@ function Workspace() {
   return (
     <div className="flex min-h-screen bg-bg text-sm text-ink">
       <div className="flex min-w-0 flex-1 flex-wrap">
-        <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-6 px-8 pt-5 pb-8 max-sm:px-4 max-sm:pb-4">
+        <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-6 px-8 pt-5 pb-8 max-lg:pb-20 max-sm:px-4">
           <ProjectStrip projects={projects} current={projectId} cloud={state.cloud} />
           {/* The strip's active chip names the project; this line says where it lives and what you can do. */}
           <h1 className="sr-only">{state.name}</h1>
@@ -321,6 +322,17 @@ function Workspace() {
                     ? [{ label: 'Stop all', onSelect: () => void run('__all', () => stopAll({ data: { projectId } })) }]
                     : []),
                   { label: 'MCP & Skills', onSelect: () => openTools(true) },
+                  {
+                    label: 'Ask before commands: only risky ones',
+                    hint: 'Claude runs routine commands on its own',
+                    checked: state.permissions === 'auto',
+                    onSelect: () => void run('__perm', () => setProjectPermissions({ data: { projectId, permissions: 'auto' } })),
+                  },
+                  {
+                    label: 'Ask before commands: every one',
+                    checked: state.permissions === 'ask',
+                    onSelect: () => void run('__perm', () => setProjectPermissions({ data: { projectId, permissions: 'ask' } })),
+                  },
                   { label: 'Change folder', onSelect: () => setEditing('folder') },
                   { label: 'Remove project', onSelect: () => void removeThisProject(), danger: true },
                 ]}
@@ -472,6 +484,7 @@ function Workspace() {
           projectName={state.name}
           skills={skills}
           tasks={state.tasks}
+          now={now}
           onAdd={async (title, attachments, how, model) => {
             try {
               await addTask({ data: { projectId, title, attachments, how, model } })
@@ -490,6 +503,7 @@ function Workspace() {
             if (task.stage === 'ready') void taskCommand(task, task.simple ? { type: 'do' } : { type: 'plan' })
           }}
           onClose={() => openTask(null)}
+          openId={openTaskId}
         >
           {openTaskId &&
             (taskDetail?.task.id === openTaskId ? (

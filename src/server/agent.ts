@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import { CLAUDE_SIGNED_OUT } from '#/lib/settings'
-import type { LogLevel, LogLine } from './types'
+import type { LogLevel, LogLine, Permissions } from './types'
 
 /**
  * Runs Claude Code (`claude -p`) on a task, in the project's folder.
@@ -104,7 +104,10 @@ function describeTool(name: string, input: Record<string, unknown>, cwd: string)
   return name
 }
 
-export class AgentError extends Error {}
+export class AgentError extends Error {
+  /** Claude got as far as starting a session before it failed. */
+  started = false
+}
 
 /** The CLI's ways of saying it has no login, which it follows with "run /login", a terminal step. */
 const SIGNED_OUT = /not logged in|please run \/login|invalid api key|oauth token has expired/i
@@ -141,7 +144,23 @@ export async function runClaude(opts: {
   fork?: boolean
   /** A model alias (opus, sonnet…); none means Claude Code's default. */
   model?: string
-}): Promise<{ sessionId: string; output: unknown; text: string; changedFiles: string[]; denials: string[] }> {
+  /** For edits: ask only before risky commands (the default), or before every one. */
+  permissions?: Permissions
+}): Promise<RunResult> {
+  if (opts.mode !== 'edit' || opts.permissions === 'ask') return runOnce(opts, opts.mode === 'edit' ? 'acceptEdits' : 'plan')
+  try {
+    return await runOnce(opts, 'auto')
+  } catch (e) {
+    // This Claude Code or account may not offer auto mode: ask before every command instead.
+    if (!(e instanceof AgentError) || e.started || !/auto/i.test(e.message)) throw e
+    note(opts.taskId, `Auto mode isn’t available (${e.message}); asking before every command instead.`, 'warn')
+    return runOnce(opts, 'acceptEdits')
+  }
+}
+
+type RunResult = { sessionId: string; output: unknown; text: string; changedFiles: string[]; denials: string[] }
+
+function runOnce(opts: Parameters<typeof runClaude>[0], permissionMode: 'plan' | 'acceptEdits' | 'auto'): Promise<RunResult> {
   const j = job(opts.taskId)
   if (j.running) throw new AgentError('Claude is already working on this task')
 
@@ -154,9 +173,9 @@ export async function runClaude(opts: {
     '--verbose',
     // Anything that needs permission is asked here, and you answer it in Pitwall.
     '--permission-prompt-tool=stdio',
-    // Understanding and planning only read the project; only "Do it" edits it.
+    // Understanding and planning only read the project; only "Do it" edits it, asking only before risky commands unless told otherwise.
     '--permission-mode',
-    opts.mode === 'edit' ? 'acceptEdits' : 'plan',
+    permissionMode,
   ]
   if (opts.sessionId) args.push('--resume', opts.sessionId)
   if (opts.sessionId && opts.fork) args.push('--fork-session')
@@ -185,6 +204,7 @@ export async function runClaude(opts: {
     const denials: string[] = []
     let partial = ''
     let stderr = ''
+    let started = false
 
     const handle = (line: string) => {
       let m: Record<string, any>
@@ -193,7 +213,10 @@ export async function runClaude(opts: {
       } catch {
         return
       }
-      if (m.session_id) sessionId = m.session_id
+      if (m.session_id) {
+        sessionId = m.session_id
+        started = true
+      }
       if (m.type === 'control_request') {
         const r = m.request ?? {}
         if (r.subtype === 'can_use_tool') {
@@ -262,9 +285,13 @@ export async function runClaude(opts: {
       j.running = false
       j.child = null
       j.asking = null
+      const fail = (e: AgentError) => {
+        e.started = started
+        reject(e)
+      }
       if (signal) return reject(new AgentError('Stopped'))
-      if (failure) return reject(failed(failure))
-      if (code !== 0) return reject(failed(stderr.trim().split('\n').at(-1) || `Claude exited with code ${code}`))
+      if (failure) return fail(failed(failure))
+      if (code !== 0) return fail(failed(stderr.trim().split('\n').at(-1) || `Claude exited with code ${code}`))
       resolve({ sessionId, output, text, changedFiles: [...changed], denials })
     })
   })

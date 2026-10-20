@@ -113,7 +113,10 @@ export function update(id: string, patch: Partial<Task> | ((t: Task) => Partial<
   write(
     read().map((t) => {
       if (t.id !== id) return t
-      out = normalize({ ...t, ...(typeof patch === 'function' ? patch(t) : patch) })
+      const next = normalize({ ...t, ...(typeof patch === 'function' ? patch(t) : patch) })
+      // Stamped on the way into Done or Dismissed, cleared on the way out.
+      if (closed(next.stage) !== closed(t.stage)) next.closedAt = closed(next.stage) ? Date.now() : undefined
+      out = next
       return out
     }),
   )

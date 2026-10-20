@@ -38,6 +38,7 @@ import * as attachmentStore from './attachments'
 import * as agent from './agent'
 import * as remote from './remote'
 import * as signin from './signin'
+import * as update from './update'
 import * as git from './git'
 import * as tools from './tools'
 import * as workflow from './workflow'
@@ -46,6 +47,7 @@ import type {
   AttachmentUpload,
   DetectedService,
   OpenResult,
+  Permissions,
   ProjectConfig,
   ProjectState,
   ProjectSummary,
@@ -337,6 +339,7 @@ export const getProjectState = createServerFn({ method: 'GET' })
       name: project.name,
       cloud: isCloud(),
       path: displayPath(project.path),
+      permissions: project.permissions ?? 'auto',
       git: await gitStatusFor(project.path),
       services,
       logService,
@@ -510,6 +513,13 @@ export const updateProjectInfo = createServerFn({ method: 'POST' })
       ...(name ? { name } : {}),
       ...(dir ? { path: displayPath(dir) } : {}),
     }))
+  })
+
+export const setProjectPermissions = createServerFn({ method: 'POST' })
+  .validator((d: { projectId: string; permissions: Permissions }) => d)
+  .handler(async ({ data }) => {
+    if (data.permissions !== 'auto' && data.permissions !== 'ask') throw new Error('Unknown permission setting')
+    updateProject(data.projectId, (p) => ({ ...p, permissions: data.permissions }))
   })
 
 export const removeProject = createServerFn({ method: 'POST' })
@@ -688,13 +698,23 @@ export const doTask = createServerFn({ method: 'POST' })
     workflow.doIt(task, data.note)
   })
 
-/** After the work: it's right (done), or it isn't and the plan is revised. */
+/** After the work: it's right (done, and its files committed), or it isn't and the plan is revised. */
 export const confirmTask = createServerFn({ method: 'POST' })
   .validator((d: { id: string; ok: boolean; note?: string }) => d)
   .handler(async ({ data }) => {
     const task = requireTask(data.id)
     if (data.ok) {
       tasks.update(task.id, { stage: 'done', closedReason: undefined })
+      const project = requireProject(task.projectId)
+      // Mid-edit by another task, its files may be half-written: Sync will commit them later.
+      if (!task.changedFiles?.length || task.syncedAt || workflow.editing(project.id)) return
+      try {
+        if (await git.commit(project.path, task.changedFiles, task.title)) {
+          tasks.update(task.id, { syncedAt: Date.now() })
+        }
+      } catch (e) {
+        tasks.update(task.id, { error: `Done, but couldn’t commit it: ${e instanceof Error ? e.message : String(e)}` })
+      }
       return
     }
     requireIdle(task)
@@ -818,11 +838,20 @@ export const remoteTask = createServerFn({ method: 'POST' })
     return remote.start(task, project.path)
   })
 
-/** The "…" menu: the machine's Remote Control session, and which Pitwall this is. */
+/** The "…" menu: the machine's Remote Control session, which Pitwall this is, and whether there's a newer one. */
 export const getMachineRemote = createServerFn({ method: 'GET' }).handler(async () => ({
   remote: remote.getMachine(),
   version: version(),
+  /** A newer release, when there is one. */
+  latest: await update.availableUpdate(),
+  /** Whether Pitwall can update itself, or you run `sudo pitwall update`. */
+  canUpdate: update.canUpdate(),
 }))
+
+/** Asks the installer's root unit to update and restart Pitwall. */
+export const updatePitwall = createServerFn({ method: 'POST' }).handler(async () => {
+  update.requestUpdate()
+})
 
 /** One machine session per Pitwall: turning it on again hands back the same link. */
 export const machineRemote = createServerFn({ method: 'POST' })

@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import { MODELS } from '#/lib/models'
 import * as agent from './agent'
 import { killTree } from './processes'
@@ -49,6 +51,31 @@ export function stop(taskId: string) {
   if (r) killTree(r.child, 'SIGTERM')
 }
 
+/** The terminal UI moves the cursor right instead of printing spaces; turn those back into spaces before dropping the rest. */
+const readable = (s: string) => s.replace(/\x1b\[\d*C/g, ' ').replace(ANSI, '')
+
+/**
+ * Interactive `claude` first asks for a theme and whether to trust the folder, and with no one at
+ * the terminal it waits there forever. Answer both in ~/.claude.json, as finishing them once would.
+ */
+function skipFirstRun(cwd: string) {
+  const file = path.join(os.homedir(), '.claude.json')
+  let config: Record<string, any> = {}
+  try {
+    config = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return
+  }
+  const project = (config.projects ??= {})[cwd] ?? {}
+  if (config.theme && config.hasCompletedOnboarding && project.hasTrustDialogAccepted) return
+  config.theme ??= 'dark'
+  config.hasCompletedOnboarding = true
+  config.projects[cwd] = { ...project, hasTrustDialogAccepted: true }
+  const tmp = `${file}.pitwall-${process.pid}`
+  fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 })
+  fs.renameSync(tmp, file)
+}
+
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 /** Starts it and resolves with the claude.ai link once it's connected. */
@@ -77,6 +104,7 @@ function launch(key: string, cmd: string[], cwd: string, note: (text: string) =>
   const running = remotes.get(key)
   if (running?.url) return Promise.resolve(running.url)
   if (running) throw new Error('Remote control is still connecting')
+  skipFirstRun(cwd)
 
   // BSD script (macOS) takes the command as arguments; util-linux wants one string.
   const args =
@@ -94,10 +122,10 @@ function launch(key: string, cmd: string[], cwd: string, note: (text: string) =>
   return new Promise((resolve, reject) => {
     let seen = ''
     const timer = setTimeout(() => {
-      const last = seen.replace(ANSI, '').split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean).at(-1)
+      const last = readable(seen).split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean).at(-1)
       reject(
         new Error(
-          `Remote control didn’t connect. ${last ? `Claude said: ${last.slice(0, 160)}. ` : ''}If this folder is new to Claude, run \`claude\` in it once.`,
+          `Remote control didn’t connect. ${last ? `Claude said: ${last.slice(0, 160)}. ` : ''}Try running \`claude\` once on this machine as the user Pitwall runs as.`,
         ),
       )
       killTree(child, 'SIGTERM')

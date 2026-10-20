@@ -327,6 +327,7 @@ Don't start or restart dev servers; Pitwall runs them. When you're done, reply w
         prompt,
         ...session(current),
         mode: 'edit',
+        permissions: project.permissions,
         addDirs: readable(task),
       })
       // Stopped by something you denied, with nothing changed: it isn't done, so don't say it is.

@@ -87,6 +87,23 @@ export function fetchSoon(dir: string) {
   })
 }
 
+/** Commit just these files (paths in the project); false when there's no repo or nothing in them changed. */
+export async function commit(dir: string, files: string[], message: string): Promise<boolean> {
+  const inside = files.filter((f) => f && !f.startsWith('..') && !f.startsWith('/'))
+  if (!inside.length) return false
+  if (!(await git(dir, ['rev-parse', '--is-inside-work-tree']).then(() => true, () => false))) return false
+  await git(dir, ['add', '-A', '--', ...inside])
+  // Nothing staged in them (already committed, or put back as it was): nothing to do.
+  if (await git(dir, ['diff', '--cached', '--quiet', '--', ...inside]).then(() => true, () => false)) return false
+  await git(dir, ['commit', '-q', '-m', message, '--', ...inside]).catch((e: Error) => {
+    if (/user\.(name|email)|identity|tell me who you are/i.test(e.message)) {
+      throw new Error('Git doesn’t know who you are yet. Sign in to GitHub in Setup first.')
+    }
+    throw e
+  })
+  return true
+}
+
 /** Commit what's changed, pull GitHub's commits under it, push. Returns how many went each way. */
 export async function sync(dir: string, message: string): Promise<{ pushed: number; pulled: number; newBranch: boolean }> {
   let s = await status(dir)

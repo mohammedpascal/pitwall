@@ -28,7 +28,11 @@ export interface ProjectConfig {
   services: ServiceConfig[]
   /** Suggestions the person dismissed ("cwd|command"). */
   ignore?: string[]
+  /** When "Do it" asks before a command: only risky ones (the default) or every one. */
+  permissions?: Permissions
 }
+
+export type Permissions = 'auto' | 'ask'
 
 export interface ServiceView {
   id: string
@@ -139,6 +143,8 @@ export interface Task {
   original?: string
   /** Why it was closed without work (duplicate, not a bug). */
   closedReason?: string
+  /** When it moved to Done or Dismissed. */
+  closedAt?: number
   /** One Claude conversation per task, carried across every step. */
   sessionId?: string
   plans?: PlanVersion[]
@@ -189,6 +195,7 @@ export interface ProjectState {
   /** Running on a cloud machine, behind a login. */
   cloud: boolean
   path: string
+  permissions: Permissions
   /** For a git repo with a remote: the branch and what there is to sync. */
   git: { branch: string | null; upstream: boolean; ahead: number; behind: number; changed: number } | null
   services: ServiceView[]

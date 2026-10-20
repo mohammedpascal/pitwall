@@ -10,6 +10,7 @@ import { ModelPicker, useModel } from './ModelPicker'
 import { SkillSuggest, useSkillSuggest } from './SkillSuggest'
 import type { Skill } from '#/server/tools'
 import type { ModelChoice } from '#/lib/models'
+import { ago } from '#/lib/format'
 
 const WIDTH_KEY = 'pitwall:tasks-width'
 const DEFAULT_WIDTH = 420
@@ -18,7 +19,10 @@ const MIN_WIDTH = 320
 // The page beside it keeps at least this much, so the preview stays usable.
 const PAGE_ROOM = 480
 
-const clampWidth = (w: number) => Math.round(Math.max(MIN_WIDTH, Math.min(w, window.innerWidth - PAGE_ROOM)))
+/** When a task was closed; tasks closed before this was recorded fall back to when the work finished, or none. */
+const closedAt = (t: Task) => t.closedAt ?? t.fixedAt ?? t.syncedAt
+
+const clampWidth =(w: number) => Math.round(Math.max(MIN_WIDTH, Math.min(w, window.innerWidth - PAGE_ROOM)))
 
 /** The width you dragged the column to, kept for next time. */
 function useColumnWidth() {
@@ -47,6 +51,22 @@ function useFullScreen() {
   return [full, toggle] as const
 }
 
+// Below Tailwind's lg, where the column stacks under the page.
+const NARROW = '(max-width: 1023.98px)'
+
+/** Whether the window is phone-sized, so an open task always fills it. */
+function useNarrow() {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW)
+    const update = () => setNarrow(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return narrow
+}
+
 /**
  * Tasks, on the right of the page: one line per open task, Done, then the box to add one.
  * An open task takes the column's place until it's closed; the page beside it stays as it is.
@@ -55,16 +75,20 @@ export function TaskColumn({
   projectName,
   skills = [],
   tasks,
+  now,
   onAdd,
   onOpen,
   onAction,
   onClose,
+  openId,
   children,
 }: {
   projectName: string
   /** Offered when a task starts with "/". */
   skills?: Skill[]
   tasks: Task[]
+  /** For how long ago each closed task was closed. */
+  now: number
   /** Resolves true once the task is added. */
   onAdd: (title: string, attachments: AttachmentUpload[], how: TaskStart, model: ModelChoice) => Promise<boolean>
   onOpen: (task: Task) => void
@@ -72,13 +96,32 @@ export function TaskColumn({
   onAction: (task: Task) => void
   /** Back to the list from an open task. */
   onClose: () => void
+  /** Which task is open; on a phone, opening one brings the tasks back over the page. */
+  openId?: string
   /** The open task, shown instead of the list. */
   children?: ReactNode
 }) {
   const [width, setWidth] = useColumnWidth()
-  const [full, toggleFull] = useFullScreen()
+  const [fullChoice, toggleFull] = useFullScreen()
+  const narrow = useNarrow()
+  const full = narrow || fullChoice
+  // On a phone you see either the tasks or the page, and flip between them.
+  const [view, setView] = useState<'page' | 'tasks'>('page')
+  useEffect(() => {
+    if (openId) setView('tasks')
+  }, [openId])
   const open = tasks.filter((t) => !isClosed(t)).sort(byAttention)
-  const closed = tasks.filter(isClosed)
+  const closed = tasks.filter(isClosed).sort((a, b) => (closedAt(b) ?? 0) - (closedAt(a) ?? 0))
+
+  const pageButton = (
+    <button
+      type="button"
+      onClick={() => setView('page')}
+      className="inline-flex h-8 items-center justify-self-end gap-1 rounded-lg px-2 text-xs font-semibold text-ink-soft hover:bg-line-soft hover:text-ink"
+    >
+      Page <span aria-hidden="true">›</span>
+    </button>
+  )
 
   // Close on the left, full screen on the right, and over the page the project in the middle.
   const bar = (
@@ -92,17 +135,109 @@ export function TaskColumn({
         <span aria-hidden="true">✕</span> Close
       </button>
       <span className="truncate text-[13px] font-semibold">{full ? projectName : ''}</span>
-      <button
-        type="button"
-        onClick={toggleFull}
-        aria-label={full ? 'Exit full screen' : 'Full screen'}
-        title={full ? 'Exit full screen' : 'Full screen'}
-        className="flex size-8 items-center justify-center justify-self-end rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
-      >
-        {full ? <ShrinkIcon /> : <ExpandIcon />}
-      </button>
+      {/* On a phone a task is always full screen, so this shows the page instead. */}
+      {narrow ? (
+        pageButton
+      ) : (
+        <button
+          type="button"
+          onClick={toggleFull}
+          aria-label={full ? 'Exit full screen' : 'Full screen'}
+          title={full ? 'Exit full screen' : 'Full screen'}
+          className="flex size-8 items-center justify-center justify-self-end rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+        >
+          {full ? <ShrinkIcon /> : <ExpandIcon />}
+        </button>
+      )}
     </div>
   )
+
+  const list = (
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {open.length === 0 ? (
+          <p className="px-4 py-4 text-[13px] text-ink-soft">Nothing needs you.</p>
+        ) : (
+          <ul>
+            {open.map((t) => (
+              <TaskLine key={t.id} task={t} onOpen={() => onOpen(t)} onAction={() => onAction(t)} />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {closed.length > 0 && (
+        <details className="group flex-none border-t border-line-soft">
+          <summary className="flex h-10 list-none items-center gap-1.5 px-4 text-[13px] font-semibold text-ink-soft select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            History {closed.length}
+          </summary>
+          <ul className="flex max-h-48 flex-col overflow-y-auto pb-1">
+            {closed.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(t)}
+                  className="flex w-full min-w-0 flex-col py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
+                >
+                  <span className="flex w-full min-w-0 items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">{t.title}</span>
+                    {closedAt(t) !== undefined && (
+                      <span className="flex-none text-xs text-ink-faint">{ago(closedAt(t)!, now)}</span>
+                    )}
+                  </span>
+                  {t.closedReason && <span className="w-full truncate text-xs text-ink-faint">{t.closedReason}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <div className="flex-none border-t border-line">
+        <AddTask projectName={projectName} skills={skills} onAdd={onAdd} />
+      </div>
+    </>
+  )
+
+  if (narrow) {
+    if (view === 'page') {
+      const needsYou = open.some(waitsOnYou)
+      return (
+        <button
+          type="button"
+          onClick={() => setView('tasks')}
+          className="fixed bottom-4 left-4 z-40 inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-[13px] font-semibold shadow-md hover:border-ink"
+        >
+          <span aria-hidden="true">‹</span> Tasks
+          {needsYou && <span aria-label="A task needs you" className="size-2 rounded-full bg-warn" />}
+        </button>
+      )
+    }
+    // The open task, or the list, over the whole page.
+    return createPortal(
+      <div role="dialog" aria-label={children ? 'Task' : 'Tasks'} className="fixed inset-0 z-50 flex flex-col bg-surface">
+        {children ? (
+          <>
+            {bar}
+            <div className="min-h-0 flex-1 overflow-y-auto py-2">{children}</div>
+          </>
+        ) : (
+          <>
+            <div className="grid flex-none grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-line-soft bg-surface px-2 py-2">
+              <span />
+              <span className="truncate text-[13px] font-semibold">{projectName}</span>
+              {pageButton}
+            </div>
+            {list}
+          </>
+        )}
+      </div>,
+      document.body,
+    )
+  }
 
   return (
     <aside
@@ -131,48 +266,7 @@ export function TaskColumn({
           <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
         </>
       ) : (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {open.length === 0 ? (
-              <p className="px-4 py-4 text-[13px] text-ink-soft">Nothing needs you.</p>
-            ) : (
-              <ul>
-                {open.map((t) => (
-                  <TaskLine key={t.id} task={t} onOpen={() => onOpen(t)} onAction={() => onAction(t)} />
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {closed.length > 0 && (
-            <details className="group flex-none border-t border-line-soft">
-              <summary className="flex h-10 list-none items-center gap-1.5 px-4 text-[13px] font-semibold text-ink-soft select-none hover:text-ink [&::-webkit-details-marker]:hidden">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
-                  <path d="M9 18l6-6-6-6" />
-                </svg>
-                History {closed.length}
-              </summary>
-              <ul className="flex max-h-48 flex-col overflow-y-auto pb-1">
-                {closed.map((t) => (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => onOpen(t)}
-                      className="flex w-full min-w-0 flex-col py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
-                    >
-                      <span className="w-full truncate text-[13px] text-ink-soft">{t.title}</span>
-                      {t.closedReason && <span className="w-full truncate text-xs text-ink-faint">{t.closedReason}</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          <div className="flex-none border-t border-line">
-            <AddTask projectName={projectName} skills={skills} onAdd={onAdd} />
-          </div>
-        </>
+        list
       )}
     </aside>
   )

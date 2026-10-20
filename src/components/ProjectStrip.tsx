@@ -2,7 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '#/lib/errors'
 import { showToast } from '#/lib/toast'
-import { getMachineRemote, machineRemote } from '#/server/fns'
+import { getMachineRemote, machineRemote, updatePitwall } from '#/server/fns'
 import type { ProjectSummary } from '#/server/types'
 import { PlusIcon } from './icons'
 import { Menu, type MenuItem } from './Menu'
@@ -83,11 +83,32 @@ export function ProjectStrip({
       .then(setMachine)
       .catch(() => {})
   const connecting = !!remote && !remote.url
+  // Set while an update runs: quick checks, and a reload once the new version answers.
+  const [updatingFrom, setUpdatingFrom] = useState<string | null>(null)
   useEffect(() => {
     void refreshMachine()
-    const t = setInterval(() => void refreshMachine(), connecting ? 1500 : 15_000)
+    const t = setInterval(() => void refreshMachine(), connecting || updatingFrom ? 1500 : 15_000)
     return () => clearInterval(t)
-  }, [connecting])
+  }, [connecting, updatingFrom])
+  useEffect(() => {
+    if (updatingFrom && machine && machine.version !== updatingFrom) window.location.reload()
+  }, [updatingFrom, machine])
+
+  async function runUpdate() {
+    if (!machine) return
+    if (!machine.canUpdate) {
+      void navigator.clipboard?.writeText('sudo pitwall update')
+      showToast('Copied. Run sudo pitwall update on the server; after that, updates are one click.')
+      return
+    }
+    try {
+      await updatePitwall()
+      setUpdatingFrom(machine.version)
+      showToast('Updating Pitwall… back in a minute', undefined, 120_000)
+    } catch (e) {
+      showToast(errorMessage(e))
+    }
+  }
 
   async function setRemote(on: boolean) {
     try {
@@ -109,6 +130,15 @@ export function ProjectStrip({
           hint: 'Drive it from claude.ai or the Claude app',
           onSelect: () => void setRemote(true),
         },
+    ...(machine?.latest && !updatingFrom
+      ? [
+          {
+            label: machine.canUpdate ? `Update to ${machine.latest}` : 'Copy update command',
+            hint: machine.canUpdate ? 'Restarts Pitwall; running tasks stop' : `${machine.latest} is out: sudo pitwall update`,
+            onSelect: () => void runUpdate(),
+          },
+        ]
+      : []),
     { label: 'Settings', onSelect: openSettings },
     ...(cloud ? [{ label: 'Sign out', onSelect: () => signOut.current?.submit() }] : []),
   ]
@@ -185,8 +215,12 @@ export function ProjectStrip({
       <Menu
         label="Pitwall"
         items={pitwallItems}
-        badge={!!remote}
-        footer={machine ? `Pitwall ${machine.version}` : undefined}
+        badge={!!remote || !!machine?.latest}
+        footer={
+          machine
+            ? `Pitwall ${machine.version}${updatingFrom ? ' · updating…' : machine.latest ? ` · ${machine.latest} available` : ''}`
+            : undefined
+        }
       />
       {cloud && <form ref={signOut} method="post" action="/api/auth/logout" hidden />}
     </nav>

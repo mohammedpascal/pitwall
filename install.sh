@@ -201,8 +201,8 @@ case "\${1:-help}" in
       if ask "Also delete the $USER_NAME user, $HOME_DIR and everything in $PROJECTS?"; then remove_user=1; fi
     fi
     # Stopping the service ends everything it started: your services and Claude too.
-    systemctl disable --now pitwall >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/pitwall.service
+    systemctl disable --now pitwall pitwall-update.path >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/pitwall.service /etc/systemd/system/pitwall-update.path /etc/systemd/system/pitwall-update.service
     systemctl daemon-reload
     rm -rf $APP $DATA
     # Caddy goes back to what it had before Pitwall, or to serving nothing.
@@ -243,6 +243,8 @@ Environment=PORT=$UI_PORT
 Environment=HOST=127.0.0.1
 Environment=PITWALL_GATEWAY_PORT=$GATEWAY_PORT
 Environment=PITWALL_PROJECTS=$PROJECTS
+# Where Pitwall looks for newer releases.
+Environment=PITWALL_REPO=$REPO
 # A cloud machine, with or without a dev domain; it answers on this IP until it has one.
 Environment=PITWALL_CLOUD=1
 Environment=PITWALL_IP=$IP
@@ -256,8 +258,32 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# "Update to …" in Pitwall's menu: Pitwall runs as $USER_NAME, so it leaves a file
+# and this root unit runs `pitwall update`. Its own unit, so restarting Pitwall
+# doesn't stop the update halfway.
+cat >/etc/systemd/system/pitwall-update.path <<EOF
+[Unit]
+Description=Update Pitwall when it asks
+
+[Path]
+PathExists=$DATA/update-requested
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat >/etc/systemd/system/pitwall-update.service <<EOF
+[Unit]
+Description=Update Pitwall
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/rm -f $DATA/update-requested
+ExecStart=/usr/local/bin/pitwall update
+EOF
 systemctl daemon-reload
 systemctl enable pitwall >/dev/null 2>&1
+systemctl enable --now pitwall-update.path >/dev/null 2>&1
 systemctl restart pitwall
 
 # ── Firewall ────────────────────────────────────────────────────────────────
