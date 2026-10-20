@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import type { ServiceStatus, ServiceView } from '#/server/types'
 import { Menu } from './Menu'
@@ -12,17 +11,44 @@ export const STATUS: Record<ServiceStatus, { dot: string; action: 'Start' | 'Sto
 
 type Editing = 'command' | null
 
-export function ServiceCard({
+/** One service, as a tab on the output panel: its dot, its name and what it's doing if that needs you. */
+export function ServiceTab({
   service: s,
   selected,
   onSelect,
+}: {
+  service: ServiceView
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onSelect}
+      title={`$ ${s.command}`}
+      className={`relative flex h-10 flex-none items-center gap-2 rounded-t-xl px-4 text-[13px] font-semibold ${
+        selected ? 'z-10 -mb-px border border-b-0 border-line bg-surface text-ink' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+      }`}
+    >
+      <span aria-hidden="true" className={`size-[9px] flex-none rounded-full ${STATUS[s.status].dot}`} />
+      <span className="max-w-[160px] truncate">{s.name}</span>
+      <StatusLine service={s} />
+    </button>
+  )
+}
+
+/** The shown service's own controls, at the end of the panel's toolbar. */
+export function ServiceActions({
+  service: s,
+  busy,
   onToggle,
   onSave,
   onRemove,
 }: {
   service: ServiceView
-  selected: boolean
-  onSelect: () => void
+  busy: boolean
   onToggle: () => void
   onSave: (change: { name?: string; command?: string }) => Promise<void>
   onRemove: () => void
@@ -60,52 +86,28 @@ export function ServiceCard({
     }
   }
 
-  // One pill per service: whose output shows is the filled one.
-  const dots = (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="19" cy="12" r="1.8" />
-    </svg>
-  )
   return (
-    <div className="relative">
-      <div
-        onClick={onSelect}
-        className={`flex h-9 cursor-default items-center gap-2 rounded-full border pr-1 pl-3 ${
-          selected ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink-faint'
-        }`}
+    <div className="relative flex flex-none items-center gap-0.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={busy}
+        className="h-8 rounded-lg px-2.5 text-xs font-semibold text-ink hover:bg-line-soft disabled:opacity-50"
       >
-        <button
-          type="button"
-          onClick={onSelect}
-          title={`$ ${s.command}`}
-          aria-label={`Show ${s.name} output`}
-          aria-pressed={selected}
-          className="flex min-w-0 items-center gap-2 text-[13px] font-semibold"
-        >
-          <span aria-hidden="true" className={`size-[9px] flex-none rounded-full ${look.dot}`} />
-          <span className="max-w-[160px] truncate">{s.name}</span>
-        </button>
-        <StatusLine service={s} selected={selected} />
-        <Menu
-          label={`${s.name} options`}
-          trigger={dots}
-          triggerClassName={`flex size-7 items-center justify-center rounded-full ${
-            selected ? 'text-white/80 hover:bg-white/15 hover:text-white' : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-          }`}
-          items={[
-            { label: look.action, onSelect: onToggle },
-            { label: 'Edit command', onSelect: () => edit('command') },
-            { label: 'Remove service', onSelect: onRemove, danger: true },
-          ]}
-        />
-      </div>
+        {look.action}
+      </button>
+      <Menu
+        label={`${s.name} options`}
+        items={[
+          { label: 'Edit command', onSelect: () => edit('command') },
+          { label: 'Remove service', onSelect: onRemove, danger: true },
+        ]}
+      />
 
       {editing === 'command' && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute top-full left-0 z-20 mt-2 flex w-[min(420px,90vw)] flex-col gap-2 rounded-xl border border-line bg-surface p-3 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+          className="absolute top-full right-0 z-20 mt-2 flex w-[min(420px,90vw)] flex-col gap-2 rounded-xl border border-line bg-surface p-3 shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
         >
           <input
             aria-label={`${s.name} command`}
@@ -134,21 +136,9 @@ export function ServiceCard({
 }
 
 /** Only what changes what you'd do: a running service needs no words, its dot says it. */
-function StatusLine({ service: s, selected }: { service: ServiceView; selected: boolean }) {
-  if (s.status === 'running' && s.needsDomain) {
-    return (
-      <Link
-        to="/setup"
-        onClick={(e) => e.stopPropagation()}
-        className={`text-xs font-medium whitespace-nowrap hover:underline ${selected ? 'text-white/80' : 'text-ink-soft hover:text-ink'}`}
-      >
-        Add a dev domain
-      </Link>
-    )
-  }
+function StatusLine({ service: s }: { service: ServiceView }) {
   // The hollow dot already says stopped.
   if (s.status === 'running' || s.status === 'stopped') return null
   const text = s.status === 'starting' ? 'Starting…' : 'Crashed'
-  const tone = s.status === 'error' ? (selected ? 'font-medium text-white' : 'font-medium text-err') : selected ? 'text-white/80' : 'text-ink-soft'
-  return <span className={`text-xs whitespace-nowrap ${tone}`}>{text}</span>
+  return <span className={`text-xs whitespace-nowrap ${s.status === 'error' ? 'font-medium text-err' : 'font-normal text-ink-soft'}`}>{text}</span>
 }

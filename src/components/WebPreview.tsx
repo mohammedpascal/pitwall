@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { read, write } from '#/lib/storage'
 import { ExternalIcon } from './icons'
 
@@ -32,18 +32,24 @@ const short = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/$/, ''
 
 /** The running web app, embedded above its output, with an editable address. */
 export function WebPreview({
+  projectId,
   id,
   name,
   url,
   embeddable,
   ready = true,
+  actions,
 }: {
+  /** Service ids repeat across projects (`web`), so what's remembered is kept per project. */
+  projectId: string
   id: string
   name: string
   url: string
   embeddable: boolean
   /** False while the address's HTTPS certificate is still being issued. */
   ready?: boolean
+  /** The service's own controls, at the end of the address bar. */
+  actions?: ReactNode
 }) {
   const [reloads, setReloads] = useState(0)
   const [hidden, setHidden] = useState(false)
@@ -53,13 +59,14 @@ export function WebPreview({
   const [invalid, setInvalid] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const box = useRef<HTMLDivElement>(null)
+  const store = `${projectId}:${id}`
   // As tall as the window, until you drag it; then the height you chose, for this service.
   const [height, setHeight] = useState<number | null>(null)
 
   useEffect(() => {
-    const h = Number(read(heightKey(id)))
+    const h = Number(read(heightKey(store)))
     setHeight(h > 0 ? h : null)
-  }, [id])
+  }, [store])
 
   // Only a drag on the edge sets an inline height, so that's what gets remembered.
   useEffect(() => {
@@ -70,19 +77,19 @@ export function WebPreview({
       const dragged = parseInt(el.style.height, 10)
       if (!dragged) return
       clearTimeout(t)
-      t = setTimeout(() => write(heightKey(id), String(dragged)), 300)
+      t = setTimeout(() => write(heightKey(store), String(dragged)), 300)
     })
     watch.observe(el)
     return () => {
       clearTimeout(t)
       watch.disconnect()
     }
-  }, [id, hidden, ready])
+  }, [store, hidden, ready])
 
   // New service or new run: start from the app, on the last page you went to in it.
   useEffect(() => {
-    setHidden(read(hiddenKey(id)) === '1')
-    const saved = read(pathKey(id))
+    setHidden(read(hiddenKey(store)) === '1')
+    const saved = read(pathKey(store))
     let start = url
     if (saved) {
       try {
@@ -93,7 +100,7 @@ export function WebPreview({
     }
     setCurrent(start)
     setDraft(start)
-  }, [id, url])
+  }, [store, url])
 
   function go() {
     const next = resolve(draft, url)
@@ -108,13 +115,13 @@ export function WebPreview({
     setDraft(next)
     // Remember the page within this app; other sites aren't restored.
     const target = new URL(next)
-    if (target.origin === new URL(url).origin) write(pathKey(id), target.pathname + target.search + target.hash)
+    if (target.origin === new URL(url).origin) write(pathKey(store), target.pathname + target.search + target.hash)
     input.current?.blur()
   }
 
   function toggle() {
     setHidden((h) => {
-      write(hiddenKey(id), h ? '0' : '1')
+      write(hiddenKey(store), h ? '0' : '1')
       return !h
     })
   }
@@ -190,6 +197,7 @@ export function WebPreview({
             {hidden ? 'Show preview' : 'Hide'}
           </button>
         )}
+        {actions}
       </form>
 
       {!embeddable ? (

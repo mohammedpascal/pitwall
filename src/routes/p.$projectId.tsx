@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Menu } from '#/components/Menu'
 import { OutputPanel } from '#/components/OutputPanel'
 import { ProjectStrip } from '#/components/ProjectStrip'
-import { ServiceCard, STATUS } from '#/components/ServiceCard'
-import { TaskSidebar } from '#/components/TaskSidebar'
+import { ServiceActions, ServiceTab, STATUS } from '#/components/ServiceCard'
+import { TaskDock } from '#/components/TaskDock'
 import { TaskView, type TaskCommand } from '#/components/TaskView'
 import { ToolsView } from '#/components/ToolsView'
 import { FolderInput } from '#/components/ui'
@@ -129,6 +129,16 @@ function Workspace() {
     if (!id) setTaskDetail(null)
     void navigate({ to: '/p/$projectId', params: { projectId }, search: id ? { task: id } : {}, replace: true })
   }
+
+  // Escape collapses an open task, unless something inside it used the key (a menu, a draft).
+  useEffect(() => {
+    if (!openTaskId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) openTask(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openTaskId])
 
   useEffect(() => {
     void refresh()
@@ -256,6 +266,7 @@ function Workspace() {
   }
 
   const current = state.services.find((s) => s.id === selected) ?? state.services[0]
+  const showingOutput = !toolsOpen
   const isUpStatus = (st: string) => st === 'running' || st === 'starting'
   const anyUp = state.services.some((s) => isUpStatus(s.status))
   // Start all is the default; Stop all takes its place only once everything runs.
@@ -264,7 +275,7 @@ function Workspace() {
   return (
     <div className="flex min-h-screen bg-bg text-sm text-ink">
       <div className="flex min-w-0 flex-1 flex-wrap">
-        <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-6 px-8 pt-5 pb-10 max-sm:px-4">
+        <main className="flex min-w-0 flex-[999_1_520px] flex-col gap-6 px-8 pt-5 pb-8 max-sm:px-4 max-sm:pb-4">
           <ProjectStrip projects={projects} current={projectId} cloud={state.cloud} />
           {/* The strip's active chip names the project; this line says where it lives and what you can do. */}
           <h1 className="sr-only">{state.name}</h1>
@@ -350,130 +361,163 @@ function Workspace() {
             </div>
           </header>
 
-          <section aria-label="Services" className="flex flex-col gap-3">
-            {state.services.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-line p-6 text-center text-ink-soft">
-                {suggestions.length ? (
-                  'Nothing runs here yet. Add it from below.'
-                ) : (
-                  <>
-                    Nothing runs here yet. Add a task like <span className="font-medium text-ink">Create a Vite + React app</span>{' '}
-                    and Claude builds it; Pitwall offers to run it once it appears.
-                  </>
-                )}
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
+          {(state.services.length === 0 || suggestions.length > 0) && (
+            <section aria-label="Services to add" className="flex flex-col gap-3">
+                {state.services.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-line p-6 text-center text-ink-soft">
+                  {suggestions.length ? (
+                    'Nothing runs here yet. Add it from below.'
+                  ) : (
+                    <>
+                      Nothing runs here yet. Add a task like <span className="font-medium text-ink">Create a Vite + React app</span>{' '}
+                      and Claude builds it; Pitwall offers to run it once it appears.
+                    </>
+                  )}
+                </p>
+              )}
+              {suggestions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-ink-soft">
+                  <span className="mr-1">Also in this folder:</span>
+                  {suggestions.map((sug) => (
+                    <button
+                      key={`${sug.cwd}|${sug.command}`}
+                      type="button"
+                      title={`$ ${sug.command}`}
+                      disabled={!!busy[`add:${sug.id}`]}
+                      onClick={() =>
+                        void run(`add:${sug.id}`, async () => {
+                          await addService({ data: { projectId, service: sug } })
+                          setSuggestions((list) => list.filter((x) => x !== sug))
+                        })
+                      }
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-3 font-medium text-ink hover:border-ink disabled:opacity-50"
+                    >
+                      <PlusIcon size={13} />
+                      {sug.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run('dismiss', async () => {
+                        const list = suggestions
+                        setSuggestions([])
+                        for (const sug of list) await ignoreSuggestion({ data: { projectId, service: sug } })
+                      })
+                    }
+                    className="h-8 rounded-full px-2.5 hover:bg-line-soft hover:text-ink"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Services are tabs on their output; with a task or the tools open, none is picked. */}
+          <div className={`flex flex-grow flex-col ${showingOutput ? '' : 'gap-6'}`}>
+            {state.services.length > 0 && (
+              <div role="tablist" aria-label="Services" className="flex overflow-x-auto">
                 {state.services.map((s) => (
-                  <ServiceCard
+                  <ServiceTab
                     key={s.id}
                     service={s}
-                    selected={s.id === current?.id}
+                    selected={showingOutput && s.id === current?.id}
                     onSelect={() => {
                       setSelected(s.id)
-                      if (openTaskId) openTask(null)
+                      if (toolsOpen) openTools(false)
                     }}
-                    onToggle={() => toggle(s.id)}
-                    onSave={(change) => run(s.id, () => updateService({ data: { projectId, serviceId: s.id, ...change } }))}
-                    onRemove={() => removeOneService(s.id)}
                   />
                 ))}
               </div>
             )}
-            {suggestions.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-ink-soft">
-                <span className="mr-1">Also in this folder:</span>
-                {suggestions.map((sug) => (
-                  <button
-                    key={`${sug.cwd}|${sug.command}`}
-                    type="button"
-                    title={`$ ${sug.command}`}
-                    disabled={!!busy[`add:${sug.id}`]}
-                    onClick={() =>
-                      void run(`add:${sug.id}`, async () => {
-                        await addService({ data: { projectId, service: sug } })
-                        setSuggestions((list) => list.filter((x) => x !== sug))
-                      })
-                    }
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-3 font-medium text-ink hover:border-ink disabled:opacity-50"
-                  >
-                    <PlusIcon size={13} />
-                    {sug.name}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() =>
-                    void run('dismiss', async () => {
-                      const list = suggestions
-                      setSuggestions([])
-                      for (const sug of list) await ignoreSuggestion({ data: { projectId, service: sug } })
-                    })
+            {toolsOpen ? (
+              <ToolsView
+                projectId={projectId}
+                onClose={() => openTools(false)}
+                onWriteSkill={async (what) => {
+                  const task = await addTask({
+                    data: {
+                      projectId,
+                      how: 'do',
+                      title: `Write a skill for this project: ${what.trim()}\n\nCreate it as .claude/skills/<short-kebab-name>/SKILL.md, in the SKILL.md format: front matter with name and description (say when to use it), then clear instructions.`,
+                    },
+                  })
+                  openTask(task.id)
+                }}
+              />
+            ) : (
+              current && (
+                <OutputPanel
+                  projectId={projectId}
+                  service={current}
+                  logs={current.id === state.logService ? state.logs : []}
+                  tabFirst={current.id === state.services[0]?.id}
+                  actions={
+                    <ServiceActions
+                      key={current.id}
+                      service={current}
+                      busy={!!busy[current.id]}
+                      onToggle={() => toggle(current.id)}
+                      onSave={(change) => run(current.id, () => updateService({ data: { projectId, serviceId: current.id, ...change } }))}
+                      onRemove={() => removeOneService(current.id)}
+                    />
                   }
-                  className="h-8 rounded-full px-2.5 hover:bg-line-soft hover:text-ink"
-                >
-                  Dismiss
-                </button>
-              </div>
+                />
+              )
             )}
-          </section>
-
-          {toolsOpen ? (
-            <ToolsView
-              projectId={projectId}
-              onClose={() => openTools(false)}
-              onWriteSkill={async (what) => {
-                const task = await addTask({
-                  data: {
-                    projectId,
-                    how: 'do',
-                    title: `Write a skill for this project: ${what.trim()}\n\nCreate it as .claude/skills/<short-kebab-name>/SKILL.md, in the SKILL.md format: front matter with name and description (say when to use it), then clear instructions.`,
-                  },
-                })
-                openTask(task.id)
-              }}
-            />
-          ) : openTaskId && taskDetail?.task.id === openTaskId ? (
-            <TaskView
-              detail={taskDetail}
-              now={now}
-              version={planVersion}
-              onVersion={setPlanVersion}
-              onCommand={(c) => taskCommand(taskDetail.task, c)}
-              onClose={() => openTask(null)}
-              onOpenTask={(id) => openTask(id)}
-              skills={skills}
-            />
-          ) : (
-            current && <OutputPanel service={current} logs={current.id === state.logService ? state.logs : []} />
-          )}
+          </div>
         </main>
 
-        <TaskSidebar
-          projectName={state.name}
-          skills={skills}
-          tasks={state.tasks}
-          now={now}
-          onAdd={async (title, attachments, how, model) => {
-            try {
-              await addTask({ data: { projectId, title, attachments, how, model } })
-              return true
-            } catch (e) {
-              showToast(errorMessage(e))
-              return false
-            } finally {
-              void refresh()
-            }
-          }}
-          selected={openTaskId ?? null}
-          onOpen={(task) => openTask(task.id)}
-          onAction={(task) => {
-            openTask(task.id)
-            // Plan straight away (or just do a simple one); steering is in the task view.
-            if (task.stage === 'ready') void taskCommand(task, task.simple ? { type: 'do' } : { type: 'plan' })
-          }}
-          onReopen={(task) => void taskCommand(task, { type: 'reopen' })}
-        />
+        {!openTaskId && (
+          <TaskDock
+            projectName={state.name}
+            skills={skills}
+            tasks={state.tasks}
+            onAdd={async (title, attachments, how, model) => {
+              try {
+                await addTask({ data: { projectId, title, attachments, how, model } })
+                return true
+              } catch (e) {
+                showToast(errorMessage(e))
+                return false
+              } finally {
+                void refresh()
+              }
+            }}
+            onOpen={(task) => openTask(task.id)}
+            onAction={(task) => {
+              openTask(task.id)
+              // Plan straight away (or just do a simple one); steering is in the task view.
+              if (task.stage === 'ready') void taskCommand(task, task.simple ? { type: 'do' } : { type: 'plan' })
+            }}
+            onReopen={(task) => void taskCommand(task, { type: 'reopen' })}
+          />
+        )}
+
+        {/* An open task takes the right of the page, as wide as a plan reads well; the app stays on the left. */}
+        {openTaskId && (
+          <div
+            role="dialog"
+            aria-label="Task"
+            className="fixed inset-y-0 right-0 z-40 flex w-[min(1040px,100vw)] flex-col overflow-y-auto border-l border-line bg-bg px-8 py-5 shadow-[-24px_0_48px_rgba(0,0,0,0.12)] max-sm:px-4"
+          >
+            {taskDetail?.task.id === openTaskId ? (
+              <TaskView
+                detail={taskDetail}
+                now={now}
+                version={planVersion}
+                onVersion={setPlanVersion}
+                onCommand={(c) => taskCommand(taskDetail.task, c)}
+                onClose={() => openTask(null)}
+                onOpenTask={(id) => openTask(id)}
+                skills={skills}
+              />
+            ) : (
+              <p className="py-10 text-center text-ink-soft">Opening the task…</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { Link } from '@tanstack/react-router'
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { LogLine, ServiceView } from '#/server/types'
 import { clock } from '#/lib/format'
 import { AlertIcon, ExternalIcon } from './icons'
@@ -12,11 +13,26 @@ const LEVEL = {
   err: 'text-err',
 }
 
-/** Output of the selected service. Picking a service happens on its card. */
-export function OutputPanel({ service, logs }: { service: ServiceView; logs: LogLine[] }) {
+/** Output of the selected service, under its tab: one toolbar, then its preview or QR code, then its log. */
+export function OutputPanel({
+  projectId,
+  service,
+  logs,
+  actions,
+  tabFirst,
+}: {
+  projectId: string
+  service: ServiceView
+  logs: LogLine[]
+  /** The service's Start/Stop and ⋯, at the end of the toolbar. */
+  actions: ReactNode
+  /** The first tab is this one, so the card's top-left corner meets it square. */
+  tabFirst: boolean
+}) {
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
   const last = logs.at(-1)?.seq
+  const up = service.status === 'running' || service.status === 'starting'
 
   useEffect(() => {
     pinned.current = true
@@ -28,8 +44,54 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
   }, [last, service.id])
 
   return (
-    <section aria-label={`${service.name} output`} className="flex flex-grow flex-col gap-3">
-      <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
+    <section aria-label={`${service.name} output`} className="flex flex-[1_1_0px] flex-col gap-3">
+      {/* A 0px basis fills the window without growing with the output; min-h-min keeps a preview above it whole. */}
+      <div className={`flex min-h-min flex-[1_1_0px] flex-col overflow-hidden rounded-2xl border border-line bg-surface ${tabFirst ? 'rounded-tl-none' : ''}`}>
+        {service.preview ? (
+          <WebPreview
+            projectId={projectId}
+            id={service.id}
+            name={service.name}
+            url={service.preview.url}
+            embeddable={service.preview.embeddable}
+            ready={service.preview.ready ?? true}
+            actions={actions}
+          />
+        ) : (
+          <div className="flex min-h-12 items-center gap-2 border-b border-line py-1.5 pr-2 pl-4 text-[13px]">
+            {service.needsDomain ? (
+              <Link to="/setup" className="font-medium text-ink-soft hover:text-ink hover:underline">
+                Add a dev domain to open it
+              </Link>
+            ) : !up ? (
+              // Stopped: what Start will run.
+              <code className="min-w-0 truncate font-mono text-xs text-ink-soft">$ {service.command}</code>
+            ) : (
+              // Not a web page or a phone app: say where it runs.
+              service.url &&
+              !service.qr && (
+                <>
+                  <span className="text-ink-soft">Runs at</span>
+                  <code className="min-w-0 truncate font-mono text-xs select-all">
+                    {service.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </code>
+                  <a
+                    href={service.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${service.name} in a new tab`}
+                    title="Open in a new tab"
+                    className="flex size-8 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+                  >
+                    <ExternalIcon size={14} />
+                  </a>
+                </>
+              )
+            )}
+            <span className="ml-auto" />
+            {actions}
+          </div>
+        )}
         {service.status === 'error' && (
           <div className="flex items-center gap-2.5 border-b border-line bg-err-tint px-4 py-3 text-[13px]">
             <AlertIcon className="flex-none text-err" />
@@ -39,34 +101,6 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
               </strong>{' '}
               {service.exitCode !== null ? 'It’s in your tasks.' : 'Check its command and folder.'}
             </span>
-          </div>
-        )}
-        {service.preview && (
-          <WebPreview
-            id={service.id}
-            name={service.name}
-            url={service.preview.url}
-            embeddable={service.preview.embeddable}
-            ready={service.preview.ready ?? true}
-          />
-        )}
-        {/* Not a web page or a phone app: say where it runs, since the card doesn't. */}
-        {service.url && !service.preview && !service.qr && (
-          <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-[13px]">
-            <span className="text-ink-soft">Runs at</span>
-            <code className="min-w-0 truncate font-mono text-xs select-all">
-              {service.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-            </code>
-            <a
-              href={service.url}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`Open ${service.name} in a new tab`}
-              title="Open in a new tab"
-              className="flex size-8 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
-            >
-              <ExternalIcon size={14} />
-            </a>
           </div>
         )}
         {service.qr && (
@@ -87,7 +121,7 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
             const el = e.currentTarget
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
           }}
-          className="h-[360px] overflow-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.75]"
+          className="min-h-[360px] flex-[1_1_0px] overflow-auto px-4 pt-3.5 pb-20 font-mono text-[12.5px] leading-[1.75]"
         >
           {logs.length === 0 ? (
             <p className="text-ink-soft">Nothing yet. Start {service.name} and its output shows up here.</p>

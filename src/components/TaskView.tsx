@@ -465,7 +465,7 @@ export function TaskView({
           onClick={onClose}
           className="-ml-2 inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase hover:bg-line-soft hover:text-ink"
         >
-          <span aria-hidden="true">←</span> Output
+          Collapse <span aria-hidden="true">→</span>
         </button>
       </div>
 
