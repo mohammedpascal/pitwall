@@ -184,6 +184,9 @@ export function TaskColumn({
                   className="flex w-full min-w-0 items-baseline gap-2 py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
                 >
                   <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">{t.title}</span>
+                  <span className="flex-none rounded-full bg-line-soft px-1.5 py-0.5 text-[11px] font-semibold text-ink-soft">
+                    {t.stage === 'done' ? 'Done' : 'Dismissed'}
+                  </span>
                   {closedAt(t) !== undefined && (
                     <span className="flex-none text-xs text-ink-faint">{ago(closedAt(t)!, now)}</span>
                   )}
