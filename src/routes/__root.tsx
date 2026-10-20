@@ -1,5 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 
+import { SettingsDialog } from '#/components/Setup'
 import { Toaster } from '#/components/Toaster'
 import appCss from '../styles.css?url'
 
@@ -35,6 +36,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        <SettingsDialog />
         <Toaster />
         <Scripts />
       </body>

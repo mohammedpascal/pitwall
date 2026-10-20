@@ -7,6 +7,7 @@ import type { ProjectSummary } from '#/server/types'
 import { PlusIcon } from './icons'
 import { Menu, type MenuItem } from './Menu'
 import { AddProjectDialog } from './OpenProject'
+import { openSettings } from '#/lib/settings'
 import { QrCode } from './QrCode'
 
 /** What needs you first, then what's running, then the rest; config order within each. */
@@ -108,12 +109,8 @@ export function ProjectStrip({
           hint: 'Drive it from claude.ai or the Claude app',
           onSelect: () => void setRemote(true),
         },
-    ...(cloud
-      ? [
-          { label: 'Set up this machine', onSelect: () => void navigate({ to: '/setup' }) },
-          { label: 'Sign out', onSelect: () => signOut.current?.submit() },
-        ]
-      : []),
+    { label: 'Settings', onSelect: openSettings },
+    ...(cloud ? [{ label: 'Sign out', onSelect: () => signOut.current?.submit() }] : []),
   ]
 
   const more = sorted.filter((p) => hidden.includes(p.id))

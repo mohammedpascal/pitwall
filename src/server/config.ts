@@ -67,7 +67,7 @@ let versionCache: string | null = null
 
 /**
  * The running version: the VERSION file a release ships next to server.mjs (which
- * `pitwall status` reads too), else "dev" and the commit when run from a checkout.
+ * `pitwall status` reads too), else the checkout's tag, as `git describe` puts it.
  */
 export function version() {
   if (versionCache) return versionCache
@@ -79,8 +79,10 @@ export function version() {
     } catch {}
   }
   try {
-    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
-    return (versionCache = sha ? `dev ${sha}` : 'dev')
+    // "v0.11.1" on a tag, "v0.11.1-2-gabc1234" two commits past it, or just the commit without tags.
+    const d = execFileSync('git', ['describe', '--tags', '--always'], { cwd: ROOT, encoding: 'utf8' }).trim()
+    const past = d.match(/^(.+)-(\d+)-g[0-9a-f]+$/)
+    return (versionCache = past ? `${past[1]} +${past[2]}` : d || 'dev')
   } catch {
     return (versionCache = 'unknown')
   }

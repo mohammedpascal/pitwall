@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { openSettings } from '#/lib/settings'
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { LogLine, ServiceView } from '#/server/types'
 import { clock } from '#/lib/format'
@@ -63,9 +63,9 @@ export function OutputPanel({
           <div className="flex items-center gap-1.5 border-b border-line bg-bg/60 px-2 py-1.5">
             <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-[11px] text-[13px]">
               {service.needsDomain ? (
-                <Link to="/setup" className="font-medium text-ink-soft hover:text-ink hover:underline">
+                <button type="button" onClick={openSettings} className="font-medium text-ink-soft hover:text-ink hover:underline">
                   Add a dev domain to open it
-                </Link>
+                </button>
               ) : !up ? (
                 // Stopped: what Start will run.
                 <code className="min-w-0 truncate font-mono text-xs text-ink-soft">$ {service.command}</code>

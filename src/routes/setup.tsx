@@ -7,8 +7,8 @@ import { finishSetup, getProjects, getSetup } from '#/server/fns'
 export const Route = createFileRoute('/setup')({
   loader: async () => {
     const [setup, projects] = await Promise.all([getSetup(), getProjects()])
-    // A laptop has nothing to set up.
-    if (!setup) throw redirect({ to: '/' })
+    // Only a new cloud machine starts here; after that, Settings opens as a dialog.
+    if (!setup.cloud) throw redirect({ to: '/' })
     return { setup, projects }
   },
   head: () => ({ meta: [{ title: 'Set up · Pitwall' }] }),

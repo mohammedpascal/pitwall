@@ -1,9 +1,61 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { errorMessage } from '#/lib/errors'
+import { closeSettings, useSettingsOpen } from '#/lib/settings'
 import { checkDomain, finishClaudeSignIn, getSetup, setLoginPassword, startSignIn, switchDomain } from '#/server/fns'
 import { ErrorNote } from './ui'
 
-export type SetupState = NonNullable<Awaited<ReturnType<typeof getSetup>>>
+export type SetupState = Awaited<ReturnType<typeof getSetup>>
+
+/**
+ * Settings, over whatever page you're on. Only ✕ and Escape close it: a stray click outside, on the way back from
+ * GitHub or your DNS provider, shouldn't. A new cloud machine sees the same rows as the /setup page instead.
+ */
+export function SettingsDialog() {
+  const open = useSettingsOpen()
+  const ref = useRef<HTMLDialogElement>(null)
+  const [state, setState] = useState<SetupState | null>(null)
+
+  useEffect(() => {
+    const d = ref.current
+    if (!d) return
+    if (open && !d.open) {
+      d.showModal()
+      // Fresh each time: you may have signed in elsewhere since.
+      setState(null)
+      void getSetup()
+        .then(setState)
+        .catch(() => {})
+    } else if (!open && d.open) d.close()
+  }, [open])
+
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby="settings-h"
+      onClose={closeSettings}
+      className="m-auto w-[min(620px,calc(100vw-32px))] rounded-2xl border border-line bg-bg p-0 text-sm text-ink backdrop:bg-ink/30"
+    >
+      <div className="flex max-h-[min(720px,calc(100vh-64px))] flex-col gap-4 overflow-y-auto p-6">
+        <div className="flex items-center justify-between gap-2">
+          <h2 id="settings-h" className="text-xl font-semibold tracking-[-0.01em]">
+            Settings
+          </h2>
+          <button
+            type="button"
+            onClick={closeSettings}
+            aria-label="Close"
+            className="flex size-9 items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        {open && (state ? <Setup initial={state} /> : <p className="text-ink-soft">Loading…</p>)}
+      </div>
+    </dialog>
+  )
+}
 
 const POLL_MS = 2_000
 const DNS_POLL_MS = 3_000
@@ -23,7 +75,7 @@ export function Setup({ initial }: { initial: SetupState }) {
 
   const refresh = () =>
     getSetup()
-      .then((s) => s && setState(s))
+      .then(setState)
       .catch(() => {})
 
   // GitHub finishes on its own once you approve the code there.
@@ -152,9 +204,17 @@ export function Setup({ initial }: { initial: SetupState }) {
 
       {(error ?? claude.error ?? github.error) && <ErrorNote text={(error ?? claude.error ?? github.error)!} />}
 
-      <DomainRow domain={state.domain} next={claude.ok && github.ok} />
-
-      <PasswordRow set={state.password} onSaved={() => void refresh()} />
+      {state.cloud ? (
+        <>
+          <DomainRow domain={state.domain} next={claude.ok && github.ok} />
+          <PasswordRow set={state.password} onSaved={() => void refresh()} />
+        </>
+      ) : (
+        // Here every app gets a .localhost address by itself.
+        <Row name="Dev domain" why="To open your apps" ok who="*.localhost">
+          {null}
+        </Row>
+      )}
     </section>
   )
 }

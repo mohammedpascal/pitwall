@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { openSettings } from '#/lib/settings'
 import { useState } from 'react'
 import { errorMessage } from '#/lib/errors'
 import type { GithubRepo } from '#/server/fns'
@@ -32,9 +32,9 @@ export function RepoList({
   if (!signedIn) {
     return (
       <p className="rounded-2xl border border-dashed border-line p-6 text-center text-ink-soft">
-        <Link to="/setup" className="font-medium text-ink underline">
+        <button type="button" onClick={openSettings} className="font-medium text-ink underline">
           Sign in to GitHub
-        </Link>{' '}
+        </button>{' '}
         to see your repos here.
       </p>
     )

@@ -188,17 +188,20 @@ export const getSignIn = createServerFn({ method: 'GET' }).handler(() => (isClou
 
 /** Everything the Setup screen shows. Null on a laptop, which needs no setup. */
 export const getSetup = createServerFn({ method: 'GET' }).handler(async () => {
-  if (!isCloud()) return null
   const signIn = await signin.status()
+  const signedIn = signIn.claude.ok && signIn.github.ok
+  // A laptop's apps are on *.localhost and it has no login: only the sign-ins are yours to do.
+  if (!isCloud()) return { cloud: false, signIn, domain: 'localhost', ip: null, seen: true, password: false, done: signedIn }
   const domain = cloudDomain()
   return {
+    cloud: true,
     signIn,
     domain,
     ip: publicIp(),
     seen: setupSeen(),
     // Optional, so it isn't part of "done": it only saves you SSH on another device.
     password: hasPassword(),
-    done: signIn.claude.ok && signIn.github.ok && !!domain,
+    done: signedIn && !!domain,
   }
 })
 

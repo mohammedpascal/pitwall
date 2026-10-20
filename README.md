@@ -174,7 +174,7 @@ Open  https://203.0.113.7/login/k3J9…
 The link works once, for 24 hours (`sudo pitwall link` prints a new one).
 It opens **Setup**, where you sign the server in to Claude (for tasks) and
 GitHub (for cloning, `git push` and pull requests), and give it a dev domain.
-Each is optional, and Setup stays at `/setup` for later.
+Each is optional; later they're in **Settings**, in the top **…** menu.
 
 It starts with a **Hello World** project, a static page that shows how
 Pitwall works: try a task on it, then remove it from its **⋯** menu.
