@@ -856,6 +856,7 @@ export const restartTask = createServerFn({ method: 'POST' })
       stage: 'new',
       sessionId: parent?.sessionId,
       summary: undefined,
+      impact: undefined,
       kind: undefined,
       simple: undefined,
       plans: undefined,

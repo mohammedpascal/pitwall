@@ -6,7 +6,7 @@ import { findProject } from './config'
 import { launch } from './launch'
 import * as pm from './processes'
 import * as tasks from './tasks'
-import type { Task, TaskKind, TaskStart } from './types'
+import type { Task, TaskImpact, TaskKind, TaskStart } from './types'
 import { MODELS } from '#/lib/models'
 
 /**
@@ -75,6 +75,14 @@ function describe(task: Task) {
     .join('\n\n')
 }
 
+/** What Claude made of the task when it read it, to carry into planning and doing. */
+function understanding(task: Task) {
+  if (!task.summary) return ''
+  const i = task.impact
+  const impact = i ? `\nUI: ${i.ui}\nArchitecture: ${i.architecture}\nBusiness: ${i.business}` : ''
+  return `\n\nYour understanding so far: ${task.summary}${impact}`
+}
+
 // ── Understand ──────────────────────────────────────────────────────────────
 
 const UNDERSTAND_SCHEMA = {
@@ -92,12 +100,23 @@ const UNDERSTAND_SCHEMA = {
     title: { type: 'string', description: 'Short, plain, specific title, under 70 characters' },
     summary: {
       type: 'string',
-      description: 'One short paragraph: what is wrong or wanted, and where in the code, in plain words',
+      description:
+        'One short paragraph. Open with what the person wants, as "As a user, I want … so that …", then what is wrong or wanted and where in the code, in plain words',
+    },
+    impact: {
+      type: 'object',
+      description: 'What the change means for each area: one plain sentence each, or "None"',
+      properties: {
+        ui: { type: 'string', description: 'What people will see or do differently' },
+        architecture: { type: 'string', description: 'What changes in the code, data or flow' },
+        business: { type: 'string', description: 'Why it matters to the people using the product' },
+      },
+      required: ['ui', 'architecture', 'business'],
     },
     duplicateOf: { type: 'string', description: 'Id of an open task this repeats, or empty' },
     reason: { type: 'string', description: 'When not actionable or a duplicate: why, in a few words' },
   },
-  required: ['actionable', 'kind', 'simple', 'title', 'summary', 'duplicateOf', 'reason'],
+  required: ['actionable', 'kind', 'simple', 'title', 'summary', 'impact', 'duplicateOf', 'reason'],
 }
 
 export async function understand(task: Task) {
@@ -129,7 +148,8 @@ Look at the relevant code just enough to understand it. Decide:
 - whether it repeats one of these open tasks:
 ${others || '(none)'}
 
-Rewrite the title so anyone on the team understands it at a glance, and summarise it in one short paragraph.`
+Rewrite the title so anyone on the team understands it at a glance, and summarise it in one short paragraph that opens with what the person wants ("As a user, I want … so that …").
+Then say in one sentence each what it means for the UI, the architecture and the business, or "None".`
 
   try {
     const r = await agent.runClaude({
@@ -147,6 +167,7 @@ Rewrite the title so anyone on the team understands it at a glance, and summaris
       simple: boolean
       title: string
       summary: string
+      impact?: TaskImpact
       duplicateOf: string
       reason: string
     } | null
@@ -159,6 +180,7 @@ Rewrite the title so anyone on the team understands it at a glance, and summaris
       simple: out.simple,
       title: out.title.trim() || task.title,
       summary: out.summary.trim(),
+      impact: out.impact,
       stage: closed ? 'dismissed' : 'ready',
       closedReason: dup ? `Same as “${dup.title}”` : !out.actionable ? out.reason || 'Not actionable' : undefined,
     })
@@ -187,9 +209,10 @@ const PLAN_UNREAD_SCHEMA = {
     ...PLAN_SCHEMA.properties,
     title: UNDERSTAND_SCHEMA.properties.title,
     summary: UNDERSTAND_SCHEMA.properties.summary,
+    impact: UNDERSTAND_SCHEMA.properties.impact,
     kind: UNDERSTAND_SCHEMA.properties.kind,
   },
-  required: ['html', 'title', 'summary', 'kind'],
+  required: ['html', 'title', 'summary', 'impact', 'kind'],
 }
 
 const PLAN_RULES = `Write the plan as one complete HTML page (inline CSS, no external files or scripts, no web fonts).
@@ -218,11 +241,11 @@ export async function plan(task: Task, note?: string) {
     v === 1
       ? `Plan the work for this task in the project in this folder (${project.name}). Do not change anything yet.
 
-${describe(task)}${task.summary ? `\n\nYour understanding so far: ${task.summary}` : ''}${ask ? `\n\nGuidance from the person: ${ask}` : ''}
+${describe(task)}${understanding(task)}${ask ? `\n\nGuidance from the person: ${ask}` : ''}
 
 ${PLAN_RULES}${
           unread
-            ? '\nAlso give a short title anyone on the team understands at a glance, a one-paragraph summary, and the kind: bug (something broken), change (something to add or alter) or question.'
+            ? '\nAlso give a short title anyone on the team understands at a glance, a one-paragraph summary that opens with "As a user, I want … so that …", one sentence each on what it means for the UI, the architecture and the business (or "None"), and the kind: bug (something broken), change (something to add or alter) or question.'
             : ''
         }`
       : `Revise your plan (now version ${v}). Do not change anything yet.${ask ? `\n\nWhat should change: ${ask}` : ''}
@@ -239,7 +262,13 @@ ${PLAN_RULES}`
       schema: unread ? PLAN_UNREAD_SCHEMA : PLAN_SCHEMA,
       addDirs: readable(task),
     })
-    const out = r.output as { html?: string; title?: string; summary?: string; kind?: TaskKind } | null
+    const out = r.output as {
+      html?: string
+      title?: string
+      summary?: string
+      impact?: TaskImpact
+      kind?: TaskKind
+    } | null
     const html = out?.html
     if (!html?.trim()) throw new Error('Claude didn’t return a plan')
     fs.mkdirSync(path.dirname(planFile(task.id, v)), { recursive: true })
@@ -249,6 +278,7 @@ ${PLAN_RULES}`
         ? {
             title: out?.title?.trim() || t.title,
             summary: out?.summary?.trim() || t.summary,
+            impact: out?.impact ?? t.impact,
             kind: out?.kind ?? t.kind,
           }
         : {}),
@@ -287,7 +317,7 @@ export function doIt(task: Task, note?: string) {
       ? `The plan (version ${v}) is approved. Carry it out now in this folder, keeping to the plan.`
       : `Do this task now in the project in this folder (${project.name}). Keep the change as small as the task allows.
 
-${describe(current)}${current.summary ? `\n\nYour understanding so far: ${current.summary}` : ''}`
+${describe(current)}${understanding(current)}`
     const prompt = `${brief}${ask ? `\n\nGuidance from the person: ${ask}` : ''}
 Don't start or restart dev servers; Pitwall runs them. When you're done, reply with two or three sentences on what changed.`
     try {

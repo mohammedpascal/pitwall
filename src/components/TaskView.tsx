@@ -174,6 +174,17 @@ export function TaskView({
               }
             : null
 
+  // What the change touches, leaving out areas it doesn't.
+  const impact = t.impact
+    ? (
+        [
+          ['UI', t.impact.ui],
+          ['Architecture', t.impact.architecture],
+          ['Business', t.impact.business],
+        ] as const
+      ).filter(([, text]) => text?.trim() && !/^none\.?$/i.test(text.trim()))
+    : []
+
   const menu = [
     ...(stage.working ? [{ label: 'Stop Claude', onSelect: () => void send({ type: 'stop' }) }] : []),
     ...(remote
@@ -489,6 +500,16 @@ export function TaskView({
             {t.title}
           </h2>
           {t.summary && <p className="max-w-[68ch] text-[13.5px] leading-relaxed text-ink-soft">{t.summary}</p>}
+          {impact.length > 0 && (
+            <dl className="grid max-w-[68ch] grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1.5 text-[13px] leading-relaxed">
+              {impact.map(([label, text]) => (
+                <Fragment key={label}>
+                  <dt className="pt-px text-[11.5px] font-medium tracking-wide text-ink-soft uppercase">{label}</dt>
+                  <dd className="text-ink-soft">{text}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          )}
         </header>
 
         {t.error && (

@@ -100,6 +100,12 @@ export interface Asking {
   summary: string
 }
 
+export interface TaskImpact {
+  ui: string
+  architecture: string
+  business: string
+}
+
 export interface Task {
   /** Which Claude runs it; absent means Claude Code's default. */
   model?: ModelChoice
@@ -127,6 +133,8 @@ export interface Task {
   simple?: boolean
   /** Claude's understanding of the task, one paragraph. */
   summary?: string
+  /** What the change means for each area, one sentence each, or "None". */
+  impact?: TaskImpact
   /** The task as it arrived, before Claude rewrote the title. */
   original?: string
   /** Why it was closed without work (duplicate, not a bug). */
