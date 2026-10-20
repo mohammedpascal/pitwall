@@ -155,15 +155,11 @@ export function TaskColumn({
   const list = (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {open.length === 0 ? (
-          <p className="px-4 py-4 text-[13px] text-ink-soft">Nothing needs you.</p>
-        ) : (
-          <ul>
-            {open.map((t) => (
-              <TaskLine key={t.id} task={t} onOpen={() => onOpen(t)} onAction={() => onAction(t)} />
-            ))}
-          </ul>
-        )}
+        <ul>
+          {open.map((t) => (
+            <TaskLine key={t.id} task={t} onOpen={() => onOpen(t)} onAction={() => onAction(t)} />
+          ))}
+        </ul>
       </div>
 
       {closed.length > 0 && (
