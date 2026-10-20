@@ -1,7 +1,11 @@
 # pitwall
 
-A control panel for local development: every project gets a space with its
-services (start, stop, live output) and a task inbox.
+Pitwall is a development environment for running all your projects on your own
+machine or a cloud server: connect GitHub and it checks out your repos, finds
+their services and starts them with live previews and output, gives each
+service its own HTTPS subdomain automatically (reachable from anywhere on a
+cloud server), and turns crashes and your own tasks into work Claude
+clarifies, plans (with a before/after view of the change) and then makes.
 
 ## Run it
 
