@@ -17,6 +17,13 @@
   --color-warn: oklch(72% 0.14 75);
   --color-err: oklch(52% 0.19 27);
   --color-err-tint: oklch(97% 0.015 27);
+  /* Output, drawn like a terminal. */
+  --color-term: oklch(19% 0 0);
+  --color-term-ink: oklch(90% 0 0);
+  --color-term-faint: oklch(58% 0 0);
+  --color-term-ok: oklch(76% 0.14 150);
+  --color-term-warn: oklch(82% 0.13 80);
+  --color-term-err: oklch(72% 0.17 27);
 }
 
 * {

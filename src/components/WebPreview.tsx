@@ -146,7 +146,6 @@ export function WebPreview({
             invalid ? 'border-err' : editing ? 'border-ink bg-surface' : 'border-transparent hover:border-line'
           }`}
         >
-          <span aria-hidden="true" className="size-2 flex-none rounded-full bg-ok" />
           <input
             ref={input}
             id={`preview-address-${id}`}

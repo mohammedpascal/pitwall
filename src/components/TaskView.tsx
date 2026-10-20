@@ -6,6 +6,7 @@ import { read, write } from '#/lib/storage'
 import { STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, ArrowUpIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
+import { LEVEL } from './OutputPanel'
 import { MODE, ModePicker, useMode } from './ModePicker'
 import { ModelPicker } from './ModelPicker'
 import type { ModelChoice } from '#/lib/models'
@@ -240,7 +241,7 @@ export function TaskView({
     outputShown[key] && (
       <>
         {key === 'asked' && t.detail && (
-          <pre className="max-h-48 overflow-auto rounded-[10px] border border-line-soft bg-bg/60 px-3.5 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+          <pre className="max-h-48 overflow-auto rounded-[10px] bg-term px-3.5 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-term-ink [color-scheme:dark]">
             {t.detail}
           </pre>
         )}
@@ -726,13 +727,6 @@ function Event({
   )
 }
 
-const LEVEL = {
-  info: 'text-ink',
-  ok: 'text-ok',
-  warn: 'text-ink-soft',
-  err: 'text-err',
-}
-
 /** Claude's output for one step, kept scrolled to the newest line. */
 function LogBox({ lines }: { lines: LogLine[] }) {
   const box = useRef<HTMLDivElement>(null)
@@ -746,11 +740,11 @@ function LogBox({ lines }: { lines: LogLine[] }) {
       ref={box}
       role="log"
       aria-label="Output"
-      className="max-h-[320px] overflow-auto rounded-[10px] border border-line-soft bg-bg/60 px-3.5 py-2.5 font-mono text-[11.5px] leading-[1.75]"
+      className="max-h-[320px] overflow-auto rounded-[10px] bg-term px-3.5 py-2.5 font-mono text-[11.5px] leading-[1.75] text-term-ink [color-scheme:dark]"
     >
       {lines.map((l) => (
         <div key={l.seq} className={`flex gap-3.5 whitespace-pre-wrap ${LEVEL[l.level]}`}>
-          <span className="flex-none text-ink-soft">{clock(l.t)}</span>
+          <span className="flex-none text-term-faint">{clock(l.t)}</span>
           <span className="min-w-0 break-words">{l.text}</span>
         </div>
       ))}

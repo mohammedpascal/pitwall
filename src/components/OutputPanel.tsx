@@ -6,11 +6,12 @@ import { AlertIcon, ExternalIcon } from './icons'
 import { QrCode } from './QrCode'
 import { WebPreview } from './WebPreview'
 
-const LEVEL = {
-  info: 'text-ink',
-  ok: 'text-ok',
-  warn: 'text-[oklch(52%_0.12_70)]',
-  err: 'text-err',
+/** A line's colour on the dark console, by its level. */
+export const LEVEL = {
+  info: 'text-term-ink',
+  ok: 'text-term-ok',
+  warn: 'text-term-warn',
+  err: 'text-term-err',
 }
 
 /** Output of the selected service, under its tab: one toolbar, then its preview or QR code, then its log. */
@@ -58,37 +59,43 @@ export function OutputPanel({
             actions={actions}
           />
         ) : (
-          <div className="flex min-h-12 items-center gap-2 border-b border-line py-1.5 pr-2 pl-4 text-[13px]">
-            {service.needsDomain ? (
-              <Link to="/setup" className="font-medium text-ink-soft hover:text-ink hover:underline">
-                Add a dev domain to open it
-              </Link>
-            ) : !up ? (
-              // Stopped: what Start will run.
-              <code className="min-w-0 truncate font-mono text-xs text-ink-soft">$ {service.command}</code>
-            ) : (
-              // Not a web page or a phone app: say where it runs.
-              service.url &&
-              !service.qr && (
-                <>
-                  <span className="text-ink-soft">Runs at</span>
-                  <code className="min-w-0 truncate font-mono text-xs select-all">
-                    {service.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                  </code>
-                  <a
-                    href={service.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`Open ${service.name} in a new tab`}
-                    title="Open in a new tab"
-                    className="flex size-8 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
-                  >
-                    <ExternalIcon size={14} />
-                  </a>
-                </>
-              )
-            )}
-            <span className="ml-auto" />
+          // Shaped like the preview's address bar, so every service's toolbar matches.
+          <div className="flex items-center gap-1.5 border-b border-line bg-bg/60 px-2 py-1.5">
+            <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-[11px] text-[13px]">
+              {service.needsDomain ? (
+                <Link to="/setup" className="font-medium text-ink-soft hover:text-ink hover:underline">
+                  Add a dev domain to open it
+                </Link>
+              ) : !up ? (
+                // Stopped: what Start will run.
+                <code className="min-w-0 truncate font-mono text-xs text-ink-soft">$ {service.command}</code>
+              ) : service.qr ? (
+                // A phone app: its address, to copy; the QR code below opens it.
+                <code title={service.qr.url} className="min-w-0 truncate font-mono text-xs select-all">
+                  {service.qr.url}
+                </code>
+              ) : (
+                // Not a web page or a phone app: say where it runs.
+                service.url && (
+                  <>
+                    <span className="text-ink-soft">Runs at</span>
+                    <code className="min-w-0 truncate font-mono text-xs select-all">
+                      {service.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                    </code>
+                    <a
+                      href={service.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open ${service.name} in a new tab`}
+                      title="Open in a new tab"
+                      className="flex size-8 flex-none items-center justify-center rounded-lg text-ink-soft hover:bg-line-soft hover:text-ink"
+                    >
+                      <ExternalIcon size={14} />
+                    </a>
+                  </>
+                )
+              )}
+            </div>
             {actions}
           </div>
         )}
@@ -109,7 +116,6 @@ export function OutputPanel({
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <p className="text-[15px] font-semibold">Open on your phone</p>
               <p className="text-[13px] leading-relaxed text-ink-soft">{service.qr.hint}</p>
-              <code className="break-all font-mono text-xs select-all">{service.qr.url}</code>
             </div>
           </div>
         )}
@@ -121,14 +127,14 @@ export function OutputPanel({
             const el = e.currentTarget
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
           }}
-          className="min-h-[360px] flex-[1_1_0px] overflow-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.75]"
+          className="min-h-[360px] flex-[1_1_0px] overflow-auto bg-term px-4 py-3.5 font-mono text-term-ink [color-scheme:dark] text-[12.5px] leading-[1.75]"
         >
           {logs.length === 0 ? (
-            <p className="text-ink-soft">Nothing yet. Start {service.name} and its output shows up here.</p>
+            <p className="text-term-faint">Nothing yet. Start {service.name} and its output shows up here.</p>
           ) : (
             logs.map((l) => (
               <div key={l.seq} className={`flex gap-3.5 whitespace-pre-wrap ${LEVEL[l.level]}`}>
-                <span className="flex-none text-ink-faint">{clock(l.t)}</span>
+                <span className="flex-none text-term-faint">{clock(l.t)}</span>
                 <span className="min-w-0 break-words">{l.text}</span>
               </div>
             ))
