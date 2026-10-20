@@ -28,11 +28,7 @@ export function OutputPanel({ service, logs }: { service: ServiceView; logs: Log
   }, [last, service.id])
 
   return (
-    <section aria-labelledby="out-h" className="flex flex-grow flex-col gap-3">
-      <h2 id="out-h" className="text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase">
-        {service.name} output
-      </h2>
-
+    <section aria-label={`${service.name} output`} className="flex flex-grow flex-col gap-3">
       <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
         {service.status === 'error' && (
           <div className="flex items-center gap-2.5 border-b border-line bg-err-tint px-4 py-3 text-[13px]">

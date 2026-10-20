@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { AttachmentUpload, Task, TaskStart } from '#/server/types'
 import { ago } from '#/lib/format'
-import { KIND, STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/lib/stages'
+import { STAGE, askingLabel, byAttention, isClosed, waitsOnYou } from '#/lib/stages'
 import { ArrowUpIcon, PaperclipIcon, PlusIcon, sourceIcon } from './icons'
 import { AttachButton, AttachmentChips, useAttachments } from './Attachments'
 import { MODE, ModePicker, useMode } from './ModePicker'
@@ -115,6 +115,7 @@ function TaskCard({
   const Icon = sourceIcon[t.source]
   const count = t.count ?? 1
   const stage = STAGE[t.stage]
+  const auto = t.sourceLabel !== 'You' && !t.parentId
   // A simple task needs no plan, so its button does it. A question from Claude comes first.
   const action = t.asking ? 'Answer' : t.stage === 'ready' && t.simple ? 'Do it' : stage.action
   return (
@@ -124,22 +125,13 @@ function TaskCard({
         selected ? 'border-ink' : 'border-line hover:border-ink-faint'
       }`}
     >
-      <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
-        <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-          {t.kind && (
-            <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">{KIND[t.kind]}</span>
-          )}
+      {/* Where it came from, only when it wasn't you: a crash, a sync. */}
+      {auto && (
+        <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-soft">
           <Icon />
           {t.sourceLabel}
-          {t.attachments?.length ? (
-            <span className="inline-flex items-center gap-0.5" title={`${t.attachments.length} attached`}>
-              <PaperclipIcon size={12} />
-              {t.attachments.length}
-            </span>
-          ) : null}
         </span>
-        <span className="flex-none">{ago(t.lastSeenAt ?? t.createdAt, now)}</span>
-      </div>
+      )}
       <button type="button" onClick={onOpen} className="text-left text-sm leading-snug font-medium break-words">
         {t.title}
         {count > 1 && (
@@ -150,17 +142,31 @@ function TaskCard({
       </button>
       {t.error && <p className="text-xs leading-snug text-err">{t.error}</p>}
       <div className="flex items-center justify-between gap-2">
-        {t.asking ? (
-          <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink">
-            <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-warn" />
-            {askingLabel(t.asking.tool)}
-          </span>
-        ) : (
-          <span className={`inline-flex items-center gap-1.5 text-xs ${stage.working ? 'text-ink-soft' : 'font-medium text-ink'}`}>
-            {stage.working && <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-ink-soft" />}
-            {stage.label}
-          </span>
-        )}
+        {/* When, and what's going on only when no button already says it. */}
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-soft">
+          {ago(t.lastSeenAt ?? t.createdAt, now)}
+          {t.attachments?.length ? (
+            <span className="inline-flex items-center gap-0.5" title={`${t.attachments.length} attached`}>
+              <PaperclipIcon size={12} />
+              {t.attachments.length}
+            </span>
+          ) : null}
+          {t.asking ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-warn" />
+              <span className="truncate font-medium text-ink">{askingLabel(t.asking.tool)}</span>
+            </>
+          ) : (
+            !action && (
+              <>
+                <span aria-hidden="true">·</span>
+                {stage.working && <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-ink-soft" />}
+                <span className={stage.working ? '' : 'font-medium text-ink'}>{stage.label}</span>
+              </>
+            )
+          )}
+        </span>
         {action && (
           <button
             type="button"

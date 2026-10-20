@@ -10,7 +10,7 @@ export const STATUS: Record<ServiceStatus, { dot: string; action: 'Start' | 'Sto
   error: { dot: 'bg-err', action: 'Restart' },
 }
 
-type Editing = 'name' | 'command' | null
+type Editing = 'command' | null
 
 export function ServiceCard({
   service: s,
@@ -38,7 +38,7 @@ export function ServiceCard({
   const look = STATUS[s.status]
 
   function edit(field: Exclude<Editing, null>) {
-    setDraft(field === 'name' ? s.name : s.command)
+    setDraft(s.command)
     setEditing(field)
   }
 
@@ -46,7 +46,7 @@ export function ServiceCard({
     const value = draft.trim()
     const field = editingRef.current
     setEditing(null)
-    if (!field || !value || value === (field === 'name' ? s.name : s.command)) return
+    if (!field || !value || value === s.command) return
     await onSave({ [field]: value })
   }
 
@@ -76,50 +76,18 @@ export function ServiceCard({
           selected ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink-faint'
         }`}
       >
-        {editing === 'name' ? (
-          <input
-            aria-label="Service name"
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={keys}
-            onBlur={() => void commit()}
-            onClick={(e) => e.stopPropagation()}
-            className="h-7 w-36 rounded-md border border-ink bg-surface px-2 text-[13px] font-semibold text-ink outline-none"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={onSelect}
-            title={`$ ${s.command}`}
-            aria-label={`Show ${s.name} output`}
-            aria-pressed={selected}
-            className="flex min-w-0 items-center gap-2 text-[13px] font-semibold"
-          >
-            <span aria-hidden="true" className={`size-[9px] flex-none rounded-full ${look.dot}`} />
-            <span className="max-w-[160px] truncate">{s.name}</span>
-          </button>
-        )}
-        {s.qr ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onSelect()
-            }}
-            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="7" height="7" rx="1" />
-              <rect x="14" y="3" width="7" height="7" rx="1" />
-              <rect x="3" y="14" width="7" height="7" rx="1" />
-              <path d="M14 14h3v3M21 14v.01M14 21h7v-4" />
-            </svg>
-            Scan
-          </button>
-        ) : (
-          <StatusLine service={s} selected={selected} />
-        )}
+        <button
+          type="button"
+          onClick={onSelect}
+          title={`$ ${s.command}`}
+          aria-label={`Show ${s.name} output`}
+          aria-pressed={selected}
+          className="flex min-w-0 items-center gap-2 text-[13px] font-semibold"
+        >
+          <span aria-hidden="true" className={`size-[9px] flex-none rounded-full ${look.dot}`} />
+          <span className="max-w-[160px] truncate">{s.name}</span>
+        </button>
+        <StatusLine service={s} selected={selected} />
         <Menu
           label={`${s.name} options`}
           trigger={dots}
@@ -129,7 +97,6 @@ export function ServiceCard({
           items={[
             { label: look.action, onSelect: onToggle },
             { label: 'Edit command', onSelect: () => edit('command') },
-            { label: 'Rename', onSelect: () => edit('name') },
             { label: 'Remove service', onSelect: onRemove, danger: true },
           ]}
         />
@@ -179,8 +146,9 @@ function StatusLine({ service: s, selected }: { service: ServiceView; selected: 
       </Link>
     )
   }
-  if (s.status === 'running') return null
-  const text = s.status === 'starting' ? 'Starting…' : s.status === 'error' ? 'Crashed' : 'Stopped'
+  // The hollow dot already says stopped.
+  if (s.status === 'running' || s.status === 'stopped') return null
+  const text = s.status === 'starting' ? 'Starting…' : 'Crashed'
   const tone = s.status === 'error' ? (selected ? 'font-medium text-white' : 'font-medium text-err') : selected ? 'text-white/80' : 'text-ink-soft'
   return <span className={`text-xs whitespace-nowrap ${tone}`}>{text}</span>
 }

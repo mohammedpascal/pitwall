@@ -78,7 +78,7 @@ export function ToolsView({
         </button>
       </div>
       <h2 id="tools-h" className="text-xl font-semibold">
-        Claude’s tools
+        MCP & Skills
       </h2>
       {error && <ErrorNote text={error} />}
 

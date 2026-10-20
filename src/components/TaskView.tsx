@@ -3,7 +3,7 @@ import type { AttachmentUpload, LogLine, TaskDetail, TaskStart } from '#/server/
 import { AttachButton, AttachmentChips, useAttachments } from './Attachments'
 import { ago, clock } from '#/lib/format'
 import { read, write } from '#/lib/storage'
-import { KIND, STAGE, askingLabel, isClosed } from '#/lib/stages'
+import { STAGE, askingLabel, isClosed } from '#/lib/stages'
 import { AlertIcon, ArrowUpIcon, PaperclipIcon, sourceIcon } from './icons'
 import { Menu } from './Menu'
 import { MODE, ModePicker, useMode } from './ModePicker'
@@ -473,13 +473,14 @@ export function TaskView({
         <header className="flex flex-col gap-3 border-b border-line p-5">
           <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
             <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-              {t.kind && (
-                <span className="rounded-full border border-line px-1.5 py-px text-[11px] font-semibold text-ink">
-                  {KIND[t.kind]}
-                </span>
+              {/* Only say where it came from when it wasn't you: a crash, a sync. Follow-ups link their parent below. */}
+              {t.sourceLabel !== 'You' && !parent && (
+                <>
+                  <Icon />
+                  {t.sourceLabel} ·{' '}
+                </>
               )}
-              <Icon />
-              {t.sourceLabel} · {ago(t.lastSeenAt ?? t.createdAt, now)} ·{' '}
+              {ago(t.lastSeenAt ?? t.createdAt, now)} ·{' '}
               {/* Which Claude does its next steps; change it here. */}
               <ModelPicker
                 compact

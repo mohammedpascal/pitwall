@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Menu } from '#/components/Menu'
 import { OutputPanel } from '#/components/OutputPanel'
 import { ProjectStrip } from '#/components/ProjectStrip'
@@ -9,7 +9,7 @@ import { TaskView, type TaskCommand } from '#/components/TaskView'
 import { ToolsView } from '#/components/ToolsView'
 import { FolderInput } from '#/components/ui'
 import { errorMessage } from '#/lib/errors'
-import { PlayIcon, PlusIcon, StopIcon } from '#/components/icons'
+import { PlusIcon } from '#/components/icons'
 import { showToast } from '#/lib/toast'
 import {
   addService,
@@ -89,7 +89,7 @@ function Workspace() {
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [now, setNow] = useState(() => Date.now())
   const [suggestions, setSuggestions] = useState<DetectedService[]>([])
-  const [editing, setEditing] = useState<'name' | 'folder' | null>(null)
+  const [editing, setEditing] = useState<'folder' | null>(null)
 
   // Switching projects swaps in that project's loader data.
   useEffect(() => {
@@ -274,16 +274,7 @@ function Workspace() {
             <div
               className={`flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-ink-soft max-sm:min-w-[260px] ${editing ? 'flex-1' : ''}`}
             >
-              {editing === 'name' ? (
-                <InlineName
-                  value={state.name}
-                  onCancel={() => setEditing(null)}
-                  onSave={async (name) => {
-                    setEditing(null)
-                    await run('__info', () => updateProjectInfo({ data: { projectId, name } }))
-                  }}
-                />
-              ) : editing === 'folder' ? (
+              {editing === 'folder' ? (
                 <InlineFolder
                   value={state.path}
                   onCancel={() => setEditing(null)}
@@ -319,8 +310,7 @@ function Workspace() {
                   ...(anyUp && !allUp
                     ? [{ label: 'Stop all', onSelect: () => void run('__all', () => stopAll({ data: { projectId } })) }]
                     : []),
-                  { label: 'Claude’s tools', onSelect: () => openTools(true) },
-                  { label: 'Rename', onSelect: () => setEditing('name') },
+                  { label: 'MCP & Skills', onSelect: () => openTools(true) },
                   { label: 'Change folder', onSelect: () => setEditing('folder') },
                   { label: 'Remove project', onSelect: () => void removeThisProject(), danger: true },
                 ]}
@@ -343,9 +333,8 @@ function Workspace() {
                     type="button"
                     onClick={() => void run('__all', () => stopAll({ data: { projectId } }))}
                     disabled={busy.__all}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft disabled:opacity-50"
+                    className={HEADER_ACTION}
                   >
-                    <StopIcon size={11} />
                     Stop all
                   </button>
                 ) : (
@@ -353,9 +342,8 @@ function Workspace() {
                     type="button"
                     onClick={() => void run('__all', () => startAll({ data: { projectId } }))}
                     disabled={busy.__all}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-[13px] font-medium whitespace-nowrap text-white hover:bg-ink/85 disabled:opacity-50"
+                    className={HEADER_ACTION}
                   >
-                    <PlayIcon size={12} />
                     Start all
                   </button>
                 ))}
@@ -531,6 +519,10 @@ function GitFacts({ git }: { git: Git }) {
   )
 }
 
+// Header actions are words in the sentence, not boxes: the services below are the page.
+const HEADER_ACTION =
+  'inline-flex h-8 items-center rounded-lg px-2.5 text-[13px] font-semibold whitespace-nowrap text-ink hover:bg-line-soft disabled:opacity-50'
+
 /** The one git button, named for what it will do: Push, Pull or Sync. Hidden when there's nothing to do. */
 function SyncButton({ git, busy, onSync }: { git: Git; busy: boolean; onSync: () => void }) {
   const local = git.changed > 0 || git.ahead > 0 || !git.upstream
@@ -541,44 +533,10 @@ function SyncButton({ git, busy, onSync }: { git: Git; busy: boolean; onSync: ()
       type="button"
       onClick={onSync}
       disabled={busy}
-      className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-[13px] font-medium whitespace-nowrap hover:bg-line-soft disabled:opacity-50"
+      className={HEADER_ACTION}
     >
       {busy ? `${label === 'Pull' ? 'Pulling' : label === 'Push' ? 'Pushing' : 'Syncing'}…` : label}
     </button>
-  )
-}
-
-function InlineName({
-  value,
-  onSave,
-  onCancel,
-}: {
-  value: string
-  onSave: (name: string) => Promise<void>
-  onCancel: () => void
-}) {
-  const [draft, setDraft] = useState(value)
-  const done = useRef(false)
-  const finish = (save: boolean) => {
-    if (done.current) return
-    done.current = true
-    const name = draft.trim()
-    if (save && name && name !== value) void onSave(name)
-    else onCancel()
-  }
-  return (
-    <input
-      aria-label="Project name"
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') finish(true)
-        else if (e.key === 'Escape') finish(false)
-      }}
-      onBlur={() => finish(true)}
-      className="h-8 w-full max-w-[360px] rounded-lg border border-ink bg-surface px-2 text-sm font-semibold text-ink outline-none"
-    />
   )
 }
 
