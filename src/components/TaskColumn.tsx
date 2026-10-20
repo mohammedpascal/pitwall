@@ -150,7 +150,7 @@ export function TaskColumn({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition-transform group-open:rotate-90">
                   <path d="M9 18l6-6-6-6" />
                 </svg>
-                Done {closed.length}
+                History {closed.length}
               </summary>
               <ul className="flex max-h-48 flex-col overflow-y-auto pb-1">
                 {closed.map((t) => (
@@ -160,7 +160,7 @@ export function TaskColumn({
                       onClick={() => onOpen(t)}
                       className="flex w-full min-w-0 flex-col py-1.5 pr-4 pl-[34px] text-left hover:bg-line-soft"
                     >
-                      <span className="w-full truncate text-[13px] text-ink-soft line-through decoration-ink-faint">{t.title}</span>
+                      <span className="w-full truncate text-[13px] text-ink-soft">{t.title}</span>
                       {t.closedReason && <span className="w-full truncate text-xs text-ink-faint">{t.closedReason}</span>}
                     </button>
                   </li>
