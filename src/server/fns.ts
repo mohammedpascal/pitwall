@@ -25,7 +25,7 @@ import {
 import { expoQr, isExpoApp } from './expo'
 import { launch, launchAll } from './launch'
 import { webPreview } from './preview'
-import { cloudDomain, hostFor, pitwallHost } from './cloud'
+import { cloudDomain, hostFor, phoneHostFor, pitwallHost } from './cloud'
 import { hasPassword, newLink, setPassword } from './auth'
 import * as certs from './certs'
 import * as pm from './processes'
@@ -282,14 +282,17 @@ export const getProjects = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectSummary[]> => {
     startLifecycle()
     const waiting = new Map<string, number>()
+    const working = new Map<string, number>()
     for (const t of tasks.all()) {
       if (STAGE[t.stage].yours || agent.asking(t.id)) waiting.set(t.projectId, (waiting.get(t.projectId) ?? 0) + 1)
+      else if (STAGE[t.stage].working) working.set(t.projectId, (working.get(t.projectId) ?? 0) + 1)
     }
     return loadConfig().map((p) => ({
       id: p.id,
       name: p.name,
       running: p.services.filter((s) => isUp(pm.view(key(p.id, s.id)).status)).length,
       needsYou: waiting.get(p.id) ?? 0,
+      working: working.get(p.id) ?? 0,
     }))
   },
 )
@@ -308,22 +311,24 @@ export const getProjectState = createServerFn({ method: 'GET' })
         const cwd = serviceCwd(project, s)
         // Expo apps open on a phone (QR); web apps open right here (preview).
         const expo = isExpoApp(cwd, s.command)
-        const qr =
-          running && expo
-            ? await expoQr({ key: k, command: s.command, cwd, url: view.url, startedAt: view.startedAt })
-            : null
-        const local =
-          running && !expo ? await webPreview({ key: k, url: view.url, startedAt: view.startedAt }) : null
         // On a cloud machine every link and preview uses the service's public address;
         // the gateway lets Pitwall's preview frame it.
         const host = hostFor(project, s)
         const publicUrl = host ? `https://${host}` : null
         // A cloud machine without a domain has no address to open it at yet.
         const hidden = isCloud() && !publicUrl
+        // Phones open a cloud machine's Expo apps at their phone host, which needs no login.
+        const publicHost = expo ? phoneHostFor(project, s) : null
+        const qr =
+          running && expo && !hidden
+            ? await expoQr({ key: k, command: s.command, cwd, url: view.url, startedAt: view.startedAt, publicHost })
+            : null
+        const local =
+          running && !expo ? await webPreview({ key: k, url: view.url, startedAt: view.startedAt }) : null
         const url = publicUrl && (view.url || isUp(view.status)) ? publicUrl : hidden ? null : view.url
         // Until its certificate exists the browser would only show "connection reset": say so instead.
         const preview = local && publicUrl && host ? { url: publicUrl, embeddable: true, ready: certs.ready(host) } : hidden ? null : local
-        return { id: s.id, name: s.name, command: s.command, ...view, url, qr, preview, needsDomain: hidden && !!local }
+        return { id: s.id, name: s.name, command: s.command, ...view, url, qr, preview, needsDomain: hidden && (!!local || (running && expo)) }
       }),
     )
 

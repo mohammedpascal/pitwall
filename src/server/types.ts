@@ -187,6 +187,8 @@ export interface ProjectSummary {
   running: number
   /** Tasks waiting on you: ready to plan, plan ready, or done and to be checked. */
   needsYou: number
+  /** Tasks Claude is working on: reading, planning or doing. */
+  working: number
 }
 
 export interface ProjectState {

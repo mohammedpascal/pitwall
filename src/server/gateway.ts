@@ -10,7 +10,8 @@ import * as pm from './processes'
  * here, so Caddy never needs to know the domain and it can change any time.
  * pitwall.<domain> goes on to Pitwall itself, as it is. For the rest the gateway
  * checks the login cookie, finds the service by host name, and proxies to the
- * port it listens on, WebSockets included, so hot reload works.
+ * port it listens on, WebSockets included, so hot reload works. An Expo app's
+ * phone host (cloud.ts) needs no cookie: its secret key is the pass.
  */
 
 const PORT = Number(process.env.PITWALL_GATEWAY_PORT) || 3001
@@ -141,9 +142,10 @@ const handlers: Handlers = {
       out.on('error', () => (res.headersSent ? res.destroy() : page(res, 502, 'Pitwall is restarting', '<p>This page retries by itself.</p>', true)))
       return void req.pipe(out)
     }
-    if (!signedIn(req)) return toLogin(req, res, domain)
     const host = hostOf(req)
     const route = routeForHost(host)
+    // An Expo app's phone host carries its own key: phones can't sign in.
+    if (!route?.phone && !signedIn(req)) return toLogin(req, res, domain)
     const pitwall = `https://${pitwallHost(domain)}`
     if (!route) {
       return page(res, 404, 'Nothing here', `<p>No service is called ${esc(host)}.</p><a href="${pitwall}/">Open Pitwall</a>`)
@@ -171,7 +173,8 @@ const handlers: Handlers = {
 
   upgrade(req, socket, head) {
     const domain = cloudDomain()
-    const route = domain && signedIn(req) ? routeForHost(hostOf(req)) : null
+    const found = domain ? routeForHost(hostOf(req)) : null
+    const route = found && (found.phone || signedIn(req)) ? found : null
     const target = route ? upstream(route) : null
     if (!target) {
       socket.end('HTTP/1.1 404 Not Found\r\n\r\n')

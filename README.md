@@ -212,7 +212,13 @@ Pitwall works: try a task on it, then remove it from its **⋯** menu.
   `pitwall` user with your projects and sign-ins. Node, Caddy and the other
   tools stay.
 
-Expo apps run there too, but phones can't reach them through the login yet.
+Expo apps run there too. Phones can't sign in, so each Expo app also gets a
+phone address, `<project>-<service>--<key>.dev.example.com`, which skips the
+login: the QR code points there, and Metro is told it (`EXPO_PACKAGER_PROXY_URL`)
+so its bundle links use it. The key is random and kept in `.pitwall/auth.json`
+(`phoneKey`); a new one (`resetPhoneKey`) stops every old phone link. Without a
+domain an Expo app's tab asks you to add one. Restart a running Expo app to
+pick up its phone address.
 
 To publish a release the installer can download, push a tag like `v0.1.0`
 (see `.github/workflows/release.yml`).

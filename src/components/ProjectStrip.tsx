@@ -14,7 +14,11 @@ import { QrCode } from './QrCode'
 const rank = (p: ProjectSummary) => (p.needsYou > 0 ? 0 : p.running > 0 ? 1 : 2)
 
 const describe = (p: ProjectSummary) =>
-  [p.needsYou ? `${p.needsYou} need${p.needsYou === 1 ? 's' : ''} you` : '', p.running ? 'running' : 'stopped']
+  [
+    p.needsYou ? `${p.needsYou} need${p.needsYou === 1 ? 's' : ''} you` : '',
+    p.working ? 'working' : '',
+    p.running ? 'running' : 'stopped',
+  ]
     .filter(Boolean)
     .join(' · ')
 
@@ -188,7 +192,17 @@ export function ProjectStrip({
                 aria-hidden="true"
                 className={`size-[9px] flex-none rounded-full ${p.running ? 'bg-ok' : 'border-[1.5px] border-ink-faint'}`}
               />
-              <span className="max-w-[220px] truncate">{p.name}</span>
+              <span className="relative flex min-w-0 items-center self-stretch">
+                <span className="max-w-[220px] truncate">{p.name}</span>
+                {p.working > 0 && (
+                  // Under the name, halfway between it and the underline; positioned so the tab keeps its size.
+                  <span aria-hidden="true" className="working-dots absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-[3px]">
+                    <i className="size-1 rounded-full bg-ink-soft" />
+                    <i className="size-1 rounded-full bg-ink-soft" />
+                    <i className="size-1 rounded-full bg-ink-soft" />
+                  </span>
+                )}
+              </span>
               {p.needsYou > 0 && (
                 <span
                   aria-hidden="true"

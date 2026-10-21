@@ -22,6 +22,8 @@ interface AuthFile {
   links?: { hash: string; expires: number }[]
   /** An optional password, set in Setup: scrypt$<salt hex>$<hash hex>. */
   hash?: string
+  /** Lets phones open Expo apps without signing in: part of their phone host name. */
+  phoneKey?: string
 }
 
 function read(): AuthFile | null {
@@ -50,6 +52,26 @@ export function newLink() {
 }
 
 export const hasPassword = () => !!read()?.hash
+
+// Lowercase letters and digits only, so it fits in a host name.
+const newPhoneKey = () => crypto.randomBytes(16).toString('hex').slice(0, 16)
+
+/** The key in Expo apps' phone host names, made the first time it's needed. */
+export function phoneKey() {
+  const a = read() ?? { secret: crypto.randomBytes(32).toString('hex') }
+  if (a.phoneKey) return a.phoneKey
+  const key = newPhoneKey()
+  write({ ...a, phoneKey: key })
+  return key
+}
+
+/** A new phone key: every phone link made before stops working. */
+export function resetPhoneKey() {
+  const a = read() ?? { secret: crypto.randomBytes(32).toString('hex') }
+  const key = newPhoneKey()
+  write({ ...a, phoneKey: key })
+  return key
+}
 
 export function setPassword(password: string) {
   if (password.length < 12) throw new Error('Use at least 12 characters')

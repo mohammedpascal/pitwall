@@ -8,10 +8,10 @@ import { groupCommands } from './processes'
  * service output, so Expo prints just "Waiting on http://localhost:8081" and no
  * QR. This rebuilds the link Expo's QR would hold (@expo/cli
  * printDevServerInfoAsync), pointed at this Mac's LAN address so a phone can
- * reach it:
+ * reach it, or at its phone host on a cloud machine (https on 443):
  *  - started with --dev-client → <scheme>://expo-development-client/?url=…
  *  - expo-dev-client installed → the "choose an app" page, /_expo/loading
- *  - otherwise                 → exp://<lan-ip>:<port> for Expo Go
+ *  - otherwise                 → exp://<lan-ip>:<port> (exps://<phone host>) for Expo Go
  */
 
 export interface ExpoQr {
@@ -72,10 +72,12 @@ export async function expoQr(opts: {
   cwd: string
   url: string | null
   startedAt: number | null
+  /** The phone host on a cloud machine: the QR code points there instead. */
+  publicHost?: string | null
 }): Promise<ExpoQr | null> {
-  const { key, command, cwd, url, startedAt } = opts
+  const { key, command, cwd, url, startedAt, publicHost } = opts
   if (!url) return null
-  const cacheKey = `${key}|${url}|${startedAt}`
+  const cacheKey = `${key}|${url}|${startedAt}|${publicHost ?? ''}`
   if (cache.has(cacheKey)) return cache.get(cacheKey)!
 
   const deps = readDeps(cwd)
@@ -96,7 +98,7 @@ export async function expoQr(opts: {
     const lan = lanAddress()
     if (lan) origin.hostname = lan
   }
-  const base = `${origin.protocol}//${origin.host}`
+  const base = publicHost ? `https://${publicHost}` : `${origin.protocol}//${origin.host}`
 
   let qr: ExpoQr | null
   if (/--dev-client\b/.test(expoCommand ?? command)) {
@@ -113,7 +115,7 @@ export async function expoQr(opts: {
       hint: 'Scan with your phone, then pick Expo Go or your development build.',
     }
   } else {
-    qr = { url: `exp://${origin.host}`, hint: 'Scan with your phone to open it in Expo Go.' }
+    qr = { url: publicHost ? `exps://${publicHost}` : `exp://${origin.host}`, hint: 'Scan with your phone to open it in Expo Go.' }
   }
   cache.set(cacheKey, qr)
   return qr

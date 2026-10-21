@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import * as certs from './certs'
-import { hostFor } from './cloud'
+import { hostFor, phoneHostFor } from './cloud'
 import { isCloud, serviceCwd, type ProjectConfig, type ServiceConfig } from './config'
 import { hasPortFlag, withPortFlags, withoutPortless } from './ports'
 import { isExpoApp } from './expo'
@@ -76,7 +76,11 @@ export async function launch(project: ProjectConfig, s: ServiceConfig) {
   let command = cloud ? withoutPortless(s.command) : s.command
   const taken = () => new Set([...given].filter(([k]) => k !== key && isUp(k)).map(([, port]) => port))
 
-  if (isExpoApp(cwd, command)) {
+  const expo = isExpoApp(cwd, command)
+  // The phone host, so Metro's manifest links to its public address, not localhost.
+  const phone = cloud && expo ? phoneHostFor(project, s) : null
+  if (phone) env.EXPO_PACKAGER_PROXY_URL = `https://${phone}`
+  if (expo) {
     if (!hasPortFlag(command)) {
       const port = await freePort(Number(process.env.RCT_METRO_PORT) || 8081, taken())
       if (port) {
@@ -96,7 +100,7 @@ export async function launch(project: ProjectConfig, s: ServiceConfig) {
 
   pm.start(key, withInstall(command, cwd, project.path), cwd, env)
   // Get its address's certificate now, so it's ready by the time you open the app.
-  const host = cloud ? hostFor(project, s) : null
+  const host = phone ?? (cloud ? hostFor(project, s) : null)
   if (host) void certs.warm(host)
 }
 

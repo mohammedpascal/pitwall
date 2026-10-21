@@ -206,9 +206,9 @@ export function TaskColumn({
         <button
           type="button"
           onClick={() => setView('tasks')}
-          className="fixed bottom-4 left-4 z-40 inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-[13px] font-semibold shadow-md hover:border-ink"
+          className="fixed bottom-4 right-4 z-40 inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-[13px] font-semibold shadow-md hover:border-ink"
         >
-          <span aria-hidden="true">‹</span> Tasks
+          Tasks
           {needsYou && <span aria-label="A task needs you" className="size-2 rounded-full bg-warn" />}
         </button>
       )
@@ -260,7 +260,8 @@ export function TaskColumn({
       {children && !full ? (
         <>
           {bar}
-          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+          {/* Relative, so absolute bits in the task (the sr-only label) scroll and clip here instead of stretching the page. */}
+          <div className="relative min-h-0 flex-1 overflow-y-auto">{children}</div>
         </>
       ) : (
         list
