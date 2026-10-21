@@ -127,6 +127,8 @@ export function TaskView({
       : t.stage === 'planned'
         ? {
             placeholder: 'What should change in the plan?',
+            // Not wanted after all? Drop it without opening the menu.
+            dismissable: true,
             secondary: {
               label: 'Revise',
               run: () => send({ type: 'plan', note }),
@@ -674,6 +676,16 @@ export function TaskView({
                   </span>
                 )}
                 {'picker' in step && step.picker}
+                {'dismissable' in step && (
+                  <button
+                    type="button"
+                    disabled={sending}
+                    onClick={() => void send({ type: 'dismiss' })}
+                    className="mr-auto h-9 rounded-lg px-3 text-[13px] font-medium text-err hover:bg-line-soft disabled:opacity-40"
+                  >
+                    Dismiss
+                  </button>
+                )}
                 {step.secondary && (
                   <button
                     type="button"
