@@ -34,6 +34,17 @@ export function useMode(key: string, fallback: TaskStart) {
   return [mode, pick] as const
 }
 
+/**
+ * After a pick the menu hands focus back to its button, so Enter would just reopen it.
+ * Move on to the send button beside it instead, or to the text box while there's nothing to send.
+ */
+function sendNext() {
+  const opener = document.activeElement as HTMLElement | null
+  const send = opener?.parentElement?.nextElementSibling
+  if (send instanceof HTMLButtonElement && !send.disabled) send.focus()
+  else opener?.closest('form')?.querySelector('textarea')?.focus()
+}
+
 /** Sits before the action button and decides what it does. */
 export function ModePicker({ mode, onPick }: { mode: TaskStart; onPick: (m: TaskStart) => void }) {
   return (
@@ -51,7 +62,10 @@ export function ModePicker({ mode, onPick }: { mode: TaskStart; onPick: (m: Task
         label: MODE[m].label,
         hint: MODE[m].hint,
         checked: m === mode,
-        onSelect: () => onPick(m),
+        onSelect: () => {
+          onPick(m)
+          sendNext()
+        },
       }))}
     />
   )
